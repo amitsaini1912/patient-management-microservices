@@ -1,0 +1,13 @@
+### Create New Patient
+POST http://localhost:4000/patients
+Content-Type: application/json
+
+{
+  "address": "123 Main Street",
+  "dateOfBirth": "1985-06-15",
+  "email": "test@example.com",
+  "name": "John Doe",
+  "registeredDate": "2024-11-28"
+}
+
+###

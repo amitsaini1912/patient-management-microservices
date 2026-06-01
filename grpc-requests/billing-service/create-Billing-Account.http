@@ -1,0 +1,9 @@
+### GRPC request to create new billing account
+GRPC localhost:9001/BillingService/CreateBillingAccount
+Content-Type: application/json
+
+{
+  "patientId": "1",
+  "name": "John Doe",
+  "email": "test@example.com"
+}

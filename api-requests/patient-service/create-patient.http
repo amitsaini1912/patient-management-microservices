@@ -5,8 +5,8 @@ Content-Type: application/json
 {
   "address": "123 Main Street",
   "dateOfBirth": "1985-06-15",
-  "email": "test-with-kafka-new@example.com",
-  "name": "John Doe New with kafka",
+  "email": "test-kafka@example.com",
+  "name": "John Doe kafka test",
   "registeredDate": "2024-11-28"
 }
 

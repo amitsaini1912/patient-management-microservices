@@ -75,12 +75,14 @@ This project demonstrates real-world backend engineering concepts including:
 
 ## 🔹 Development Architecture
 
-<img width="1887" height="987" alt="Screenshot 2026-06-10 113059" src="https://github.com/user-attachments/assets/69a33447-8042-4458-aedf-cfda1a749df7" />
+<img width="1760" height="974" alt="Screenshot 2026-06-10 113059" src="https://github.com/user-attachments/assets/2b006b5e-db3e-400e-913b-ed42191f545f" />
+
 
 
 ---
 
 # ☁️ AWS Deployment Architecture
 
-<img width="1830" height="924" alt="Screenshot 2026-06-10 113111" src="https://github.com/user-attachments/assets/bb815f2b-8ec6-4e74-8a10-5874b9c62adc" />
+<img width="1738" height="898" alt="Screenshot 2026-06-10 113111" src="https://github.com/user-attachments/assets/97ed36d8-c7f0-4206-83f5-57e271431555" />
+
 

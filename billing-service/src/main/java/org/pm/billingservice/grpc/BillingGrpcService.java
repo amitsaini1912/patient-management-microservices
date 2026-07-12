@@ -27,7 +27,7 @@ public class BillingGrpcService extends BillingServiceImplBase {
                 .setStatus("ACTIVE")
                 .build();
 
-        responseObserver.onNext(response);
-        responseObserver.onCompleted();
+        responseObserver.onNext(response); // we can use multiple onNext if we have to pass multiple responce
+        responseObserver.onCompleted(); // This means response completed for this cycle
     }
 }

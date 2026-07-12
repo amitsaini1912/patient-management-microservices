@@ -1,5 +1,8 @@
 ### GRPC request to create new billing account
 GRPC localhost:9001/BillingService/CreateBillingAccount
+
+### port / serviceName (defind in proto file) / method name defind
+
 Content-Type: application/json
 
 {

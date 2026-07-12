@@ -1,4 +1,6 @@
 ### GET request to example server
-GET http://localhost:4000/patients
+GET http://localhost:4004/api/patients
+Authorization: Bearer {{token}}
 
-###
+### -> Authorization: Bearer {{token}} -> to send Auth token for JwtValidation - Filter
+### -> token must start from Bearer as we defind in business logic of JwtValidationFilter

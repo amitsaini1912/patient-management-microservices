@@ -22,7 +22,7 @@ public class AuthController {
         this.authService = authService;
     }
 
-    @Operation(summary = "Generate token on user login")
+    @Operation(summary = "Generate token on user login") // Swagger Documentation
     @PostMapping("/login")
     public ResponseEntity<LoginResponseDTO> login(
             @RequestBody LoginRequestDTO loginRequestDTO) {

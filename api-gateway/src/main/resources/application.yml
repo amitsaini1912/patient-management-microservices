@@ -5,12 +5,17 @@ spring:
   cloud:
     gateway:
       routes:
+
+        # Route for /api/auth/** to auth-service
         - id: auth-service-route
-          uri: http://auth-service:4005
+          uri: http://auth-service:4005 #Internal address of service where it is running
           predicates:
-            - Path=/auth/**
+            - Path=/auth/** # Request with this predicate forworded to internal address of service
           filters:
-            - StripPrefix=1
+            - StripPrefix=1  # When request url go to internal address it removes all prefix from url and keep only last one
+
+               ## Req comes at api gateway -> http://localhost:4004/auth/login
+               ## Req api gateway sends to internal server is -> http://auth-service:4005/login
 
         # Route for /api/patients/** to patient-service
         - id: patient-service-route
@@ -19,7 +24,8 @@ spring:
             - Path=/api/patients/**
           filters:
             - StripPrefix=1
-            - JwtValidation
+            - JwtValidation  # -> We use where we need the validation on endpoint
+                             # -> All requests coming to this url is Authorized
 
         # Route for /api/docs/patients to patient-service /v3/api-docs
         - id: api-docs-patient-route
@@ -29,9 +35,17 @@ spring:
           filters:
             - RewritePath=/api-docs/patients,/v3/api-docs
 
+        # Route for /api/docs/auth to auth-service /v3/api-docs
+
         - id: api-docs-auth-route
           uri: http://auth-service:4005
           predicates:
             - Path=/api-docs/auth
           filters:
             - RewritePath=/api-docs/auth,/v3/api-docs
+
+
+
+# auth: # -> We can Add this to env variables of gateway-service to tell where you have auth service
+#  service:   # for JwtValidation
+#    url: http://auth-service:4005

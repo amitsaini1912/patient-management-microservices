@@ -10,6 +10,7 @@
         <module name="analytic-service" />
         <module name="patient-service" />
         <module name="auth-service" />
+        <module name="infrastructure" />
         <module name="billing-service" />
       </profile>
     </annotationProcessing>

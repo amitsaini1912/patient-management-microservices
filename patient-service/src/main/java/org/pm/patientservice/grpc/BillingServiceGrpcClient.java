@@ -15,7 +15,10 @@ public class BillingServiceGrpcClient {
 
     private static final Logger log = LoggerFactory.getLogger(
             BillingServiceGrpcClient.class);
-    private final BillingServiceGrpc.BillingServiceBlockingStub blockingStub;
+    private final BillingServiceGrpc.BillingServiceBlockingStub blockingStub; // Provides blocking
+     // In other words synchronous client calls to the grpc server running on billing-service
+    // if anytime we make calls to billing service using this blockingStub execution is going to wait for
+    // the response come back from the server -> Similar to restful calls
 
     public BillingServiceGrpcClient(
             @Value("${billing.service.address:localhost}") String serverAddress,
@@ -24,8 +27,9 @@ public class BillingServiceGrpcClient {
         log.info("Connecting to Billing Service GRPC service at {}:{}",
                 serverAddress, serverPort);
 
+        // Initialize blockingStub or GRPC client
         ManagedChannel channel = ManagedChannelBuilder.forAddress(serverAddress,
-                serverPort).usePlaintext().build();
+                serverPort).usePlaintext().build(); // UsePlaintext - disable encryption
 
         blockingStub = BillingServiceGrpc.newBlockingStub(channel);
     }

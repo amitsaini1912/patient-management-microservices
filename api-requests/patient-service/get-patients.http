@@ -1,6 +1,19 @@
-### GET request to example server
+### Run login.http first — it sets the global {{token}} variable.
+
+### 1st call -> CACHE MISS: Hibernate SQL appears in patient-service logs,
+###             result is written to Redis under key "patientsList::all"
 GET http://localhost:4004/api/patients
+Authorization: Bearer {{token}}
+
+### 2nd call -> CACHE HIT: no SQL in the logs, and the cache logger prints
+###             "Cache entry for key 'all' found in cache 'patientsList'"
+GET http://localhost:4004/api/patients
+Authorization: Bearer {{token}}
+
+### Get one patient by ID (fills the "patients" cache — call it twice too)
+GET http://localhost:4004/api/patients/b6d657fd-a49d-47c6-bafa-226d48e594c5
 Authorization: Bearer {{token}}
 
 ### -> Authorization: Bearer {{token}} -> to send Auth token for JwtValidation - Filter
 ### -> token must start from Bearer as we defind in business logic of JwtValidationFilter
+### -> Inspect Redis directly: docker exec -it redis redis-cli KEYS '*'

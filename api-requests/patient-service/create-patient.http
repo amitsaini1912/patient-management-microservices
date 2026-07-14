@@ -1,13 +1,18 @@
-### Create New Patient
+### Create New Patient (through the gateway -> requires the JWT from login.http)
+### This EVICTS "patientsList" and CACHE-PUTs the new patient into "patients",
+### so the next GET /api/patients is a fresh DB read again.
 POST http://localhost:4004/api/patients
 Content-Type: application/json
+Authorization: Bearer {{token}}
 
 {
   "address": "123 Main Street",
   "dateOfBirth": "1985-06-15",
-  "email": "test-testing-@example.com",
-  "name": "John Deo Test",
+  "email": "test-redis-testing--@example.com",
+  "name": "John Deo Redis",
   "registeredDate": "2024-11-28"
 }
+
+> {% client.global.set("patientId", response.body.id) %}
 
 ###

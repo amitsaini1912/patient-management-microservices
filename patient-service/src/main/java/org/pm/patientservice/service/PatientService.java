@@ -1,5 +1,11 @@
 package org.pm.patientservice.service;
 
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.CachePut;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
+import org.pm.patientservice.config.CacheConfig;
+
 import org.pm.patientservice.dto.PatientRequestDTO;
 import org.pm.patientservice.dto.PatientResponseDTO;
 import org.pm.patientservice.exception.EmailAlreadyExistsException;
@@ -10,8 +16,11 @@ import org.pm.patientservice.mapper.PatientMapper;
 import org.pm.patientservice.model.Patient;
 import org.pm.patientservice.repository.PatientRepository;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
+
 import org.springframework.stereotype.Service;
 
 @Service
@@ -29,12 +38,25 @@ public class PatientService {
         this.kafkaProducer = kafkaProducer;
     }
 
+    @Cacheable(value = CacheConfig.PATIENT_LIST_CACHE, key = "'all'")
     public List<PatientResponseDTO> getPatients() {
         List<Patient> patients = patientRepository.findAll();
 
-        return patients.stream().map(PatientMapper::toDTO).toList();
+        return patients.stream().map(PatientMapper::toDTO)
+                .collect(Collectors.toCollection(ArrayList::new));
+    }
+    //READ — one patient (new method):
+    @Cacheable(value = CacheConfig.PATIENT_CACHE, key = "#id")
+    public PatientResponseDTO getPatientById(UUID id) {
+      Patient patient = patientRepository.findById(id).orElseThrow(
+              () -> new PatientNotFoundException("Patient not found with ID: " + id));
+      return PatientMapper.toDTO(patient);
     }
 
+    @Caching(
+            put = @CachePut(value = CacheConfig.PATIENT_CACHE, key = "#result.id"),
+            evict = @CacheEvict(value = CacheConfig.PATIENT_LIST_CACHE, allEntries = true)
+    )
     public PatientResponseDTO createPatient(PatientRequestDTO patientRequestDTO) {
         if (patientRepository.existsByEmail(patientRequestDTO.getEmail())) {
             throw new EmailAlreadyExistsException(
@@ -53,6 +75,10 @@ public class PatientService {
         return PatientMapper.toDTO(newPatient);
     }
 
+    @Caching(
+            put = @CachePut(value = CacheConfig.PATIENT_CACHE, key = "#id"),
+            evict = @CacheEvict(value = CacheConfig.PATIENT_LIST_CACHE, allEntries = true)
+    )
     public PatientResponseDTO updatePatient(UUID id,
                                             PatientRequestDTO patientRequestDTO) {
 
@@ -75,7 +101,15 @@ public class PatientService {
         return PatientMapper.toDTO(updatedPatient);
     }
 
+    @Caching(evict = {
+            @CacheEvict(value = CacheConfig.PATIENT_CACHE, key = "#id"),
+            @CacheEvict(value = CacheConfig.PATIENT_LIST_CACHE, allEntries = true)
+    })
     public void deletePatient(UUID id) {
+        if (!patientRepository.existsById(id)) {
+            throw new PatientNotFoundException("Patient not found with ID: " + id);
+        }
+
         patientRepository.deleteById(id);
     }
 }

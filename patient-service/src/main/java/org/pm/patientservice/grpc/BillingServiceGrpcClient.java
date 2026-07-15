@@ -1,4 +1,5 @@
 package org.pm.patientservice.grpc;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 
 import billing.BillingRequest;
 import billing.BillingResponse;
@@ -34,6 +35,7 @@ public class BillingServiceGrpcClient {
         blockingStub = BillingServiceGrpc.newBlockingStub(channel);
     }
 
+    @CircuitBreaker(name = "billingService", fallbackMethod = "createBillingAccountFallback")
     public BillingResponse createBillingAccount(String patientId, String name,
                                                 String email) {
 
@@ -43,5 +45,18 @@ public class BillingServiceGrpcClient {
         BillingResponse response = blockingStub.createBillingAccount(request);
         log.info("Received response from billing service via GRPC: {}", response);
         return response;
+    }
+
+    // FALLBACK — same return type, same params, PLUS a Throwable at the end
+    public BillingResponse createBillingAccountFallback(String patientId, String name,
+                                                        String email, Throwable t) {
+        log.error("Billing service unavailable — fallback triggered for patient {}. Reason: {}",
+                patientId, t.getMessage());
+
+        // Plan B: return a safe default so patient registration still succeeds.
+        return BillingResponse.newBuilder()
+                .setAccountId("PENDING")
+                .setStatus("BILLING_UNAVAILABLE")
+                .build();
     }
 }

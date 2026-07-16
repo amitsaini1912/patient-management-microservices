@@ -8,8 +8,8 @@ Authorization: Bearer {{token}}
 {
   "address": "123 Main Street",
   "dateOfBirth": "1985-06-15",
-  "email": "test-circuit-breaker-up-billing-@example.com",
-  "name": "John Deo Circuit breaker up",
+  "email": "test-circuit-prometheus-down-7-billing-@example.com",
+  "name": "John Deo",
   "registeredDate": "2024-11-28"
 }
 

@@ -1,0 +1,54 @@
+# ==================== 1. SECRET — sensitive values  ====================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: auth-secrets
+type: Opaque
+stringData:
+  postgres-password: "password"
+  jwt-secret: "Y2hhVEc3aHJnb0hYTzMyZ2ZqVkpiZ1RkZG93YWxrUkM="
+
+---
+# ==================== 2. DEPLOYMENT — keeps 1 postgres pod alive ====================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auth-db
+  template:
+    metadata:
+      labels:
+        app: auth-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: admin_user
+            - name: POSTGRES_DB
+              value: auth-service-db
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secrets
+                  key: postgres-password
+
+---
+# ==================== 3. SERVICE — a fixed name "auth-db" ====================
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-db
+spec:
+  selector:
+    app: auth-db
+  ports:
+    - port: 5432
+      targetPort: 5432

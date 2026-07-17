@@ -1,0 +1,53 @@
+# ==================== DEPLOYMENT — your pm-auth image ====================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auth-service
+  template:
+    metadata:
+      labels:
+        app: auth-service
+    spec:
+      containers:
+        - name: auth-service
+          image: amitsaini1912/pm-auth-service:latest
+          imagePullPolicy: IfNotPresent          # <- use the local pulled image, don't hit Docker Hub
+          ports:
+            - containerPort: 4005
+          env:
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secrets
+                  key: jwt-secret
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:postgresql://auth-db:5432/auth-service-db   # <- "auth-db" = the Service name!
+            - name: SPRING_DATASOURCE_USERNAME
+              value: admin_user
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secrets
+                  key: postgres-password
+            - name: SPRING_JPA_HIBERNATE_DDL_AUTO
+              value: update
+            - name: SPRING_SQL_INIT_MODE
+              value: always
+
+---
+# ==================== SERVICE — a fixed name "auth-service" ====================
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-service
+spec:
+  selector:
+    app: auth-service
+  ports:
+    - port: 4005
+      targetPort: 4005

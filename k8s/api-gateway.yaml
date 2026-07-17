@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      containers:
+        - name: api-gateway
+          image: amitsaini1912/pm-api-gateway:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 4004
+          env:
+           - name: AUTH_SERVICE_URL
+             value: http://auth-service:4005     # required by the JWT filter
+
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+spec:
+  type: LoadBalancer                              # <- NEW: the front door to the outside world
+  selector:
+    app: api-gateway
+  ports:
+    - port: 4004
+      targetPort: 4004

@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: billing-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: billing-service
+  template:
+    metadata:
+      labels:
+        app: billing-service
+    spec:
+      containers:
+        - name: billing-service
+          image: amitsaini1912/pm-billing-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 4001      # HTTP
+            - containerPort: 9001      # gRPC
+---
+apiVersion: v1
+kind: Service
+metadata:
+    name: billing-service
+spec:
+    selector:
+      app: billing-service
+    ports:
+      - name: http                       # <- NEW: each port needs a name when there's >1
+        port: 4001
+        targetPort: 4001
+      - name: grpc                       # <- NEW
+        port: 9001
+        targetPort: 9001

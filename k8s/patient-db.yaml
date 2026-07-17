@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: patient-secrets
+type: Opaque
+stringData:
+  postgres-password: "password"
+
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: patient-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: patient-db
+  template:
+    metadata:
+      labels:
+        app: patient-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: admin_user
+            - name: POSTGRES_DB
+              value: patient-service-db      # <- only real difference from auth-db
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: patient-secrets
+                  key: postgres-password
+
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: patient-db
+spec:
+  selector:
+    app: patient-db
+  ports:
+    - port: 5432
+      targetPort: 5432

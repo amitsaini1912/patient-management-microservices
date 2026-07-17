@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: patient-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: patient-service
+  template:
+    metadata:
+      labels:
+        app: patient-service
+    spec:
+      containers:
+        - name: patient-service
+          image: amitsaini1912/pm-patient-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 4000
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:postgresql://patient-db:5432/patient-service-db   # patient-db Service
+            - name: SPRING_DATASOURCE_USERNAME
+              value: admin_user
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: patient-secrets
+                  key: postgres-password
+            - name: SPRING_JPA_HIBERNATE_DDL_AUTO
+              value: update
+            - name: SPRING_SQL_INIT_MODE
+              value: always
+            - name: BILLING_SERVICE_ADDRESS
+              value: billing-service          # billing Service name -> gRPC target
+            - name: BILLING_SERVICE_GRPC_PORT
+              value: "9001"
+            - name: SPRING_DATA_REDIS_HOST
+              value: redis                    # redis Service name
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: patient-service
+spec:
+  selector:
+    app: patient-service
+  ports:
+    - port: 4000
+      targetPort: 4000

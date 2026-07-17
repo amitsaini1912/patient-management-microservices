@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analytic-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: analytic-service
+  template:
+    metadata:
+      labels:
+        app: analytic-service
+    spec:
+      containers:
+        - name: analytic-service
+          image: amitsaini1912/pm-analytic-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 4002
+          env:
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              value: kafka:9092          # the one thing it needs: where Kafka lives
+
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: analytic-service
+spec:
+  selector:
+    app: analytic-service
+  ports:
+    - port: 4002
+      targetPort: 4002

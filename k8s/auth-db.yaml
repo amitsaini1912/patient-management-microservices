@@ -8,6 +8,20 @@ stringData:
   postgres-password: "password"
   jwt-secret: "Y2hhVEc3aHJnb0hYTzMyZ2ZqVkpiZ1RkZG93YWxrUkM="
 
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: auth-db-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+
+
 ---
 # ==================== 2. DEPLOYMENT — keeps 1 postgres pod alive ====================
 apiVersion: apps/v1
@@ -16,6 +30,8 @@ metadata:
   name: auth-db
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: auth-db
@@ -39,6 +55,13 @@ spec:
                 secretKeyRef:
                   name: auth-secrets
                   key: postgres-password
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: postgres-storage
+          persistentVolumeClaim:
+            claimName: auth-db-pvc
 
 ---
 # ==================== 3. SERVICE — a fixed name "auth-db" ====================

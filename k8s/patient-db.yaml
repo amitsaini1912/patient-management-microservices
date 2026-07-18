@@ -8,12 +8,26 @@ stringData:
 
 
 ---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: patient-db-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+
+
+---
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet   #Deployment changed to StatefulSet
 metadata:
   name: patient-db
 spec:
   replicas: 1
+  serviceName: patient-db-headless
   selector:
     matchLabels:
       app: patient-db
@@ -37,7 +51,18 @@ spec:
                 secretKeyRef:
                   name: patient-secrets
                   key: postgres-password
-
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 5Gi
 
 ---
 apiVersion: v1
@@ -50,3 +75,15 @@ spec:
   ports:
     - port: 5432
       targetPort: 5432
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: patient-db-headless
+spec:
+  clusterIP: None
+  selector:
+    app: patient-db
+  ports:
+    - port: 5432

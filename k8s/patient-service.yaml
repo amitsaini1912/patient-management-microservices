@@ -29,9 +29,9 @@ spec:
                   name: patient-secrets
                   key: postgres-password
             - name: SPRING_JPA_HIBERNATE_DDL_AUTO
-              value: update
+              value: validate # was: update
             - name: SPRING_SQL_INIT_MODE
-              value: always
+              value: never # was: always
             - name: BILLING_SERVICE_ADDRESS
               value: billing-service          # billing Service name -> gRPC target
             - name: BILLING_SERVICE_GRPC_PORT

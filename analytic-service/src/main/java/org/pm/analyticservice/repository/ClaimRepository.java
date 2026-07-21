@@ -10,6 +10,9 @@ import org.springframework.data.jpa.repository.Query;
 import java.util.List;
 import java.util.UUID;
 
+import org.pm.analyticservice.model.Claim;
+import org.springframework.data.repository.query.Param;
+
 public interface ClaimRepository extends JpaRepository<Claim, UUID> {
 
     @Query(value = """                                                                                                                             
@@ -63,4 +66,11 @@ public interface ClaimRepository extends JpaRepository<Claim, UUID> {
       ORDER BY month
       """, nativeQuery = true)
     List<MonthlyTrend> getMonthlyTrend();
+
+    // NAIVE: loads claims only. Touching each claim's visit later → N+1.
+    List<Claim> findByStatus(String status);
+
+    // FIXED: JOIN FETCH grabs claims AND their visits in ONE query.
+    @Query("SELECT c FROM Claim c JOIN FETCH c.visit WHERE c.status = :status")
+    List<Claim> findByStatusWithVisit(@Param("status") String status);
 }

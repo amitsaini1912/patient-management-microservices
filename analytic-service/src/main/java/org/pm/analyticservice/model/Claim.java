@@ -2,7 +2,10 @@ package org.pm.analyticservice.model;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import java.math.BigDecimal;
 import java.util.UUID;
 
@@ -11,8 +14,9 @@ public class Claim {
     @Id
     private UUID id;
 
-    @Column(name = "visit_id", nullable = false)
-    private UUID visitId;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "visit_id", nullable = false)
+    private Visit visit;
 
     @Column(name = "claim_amount", nullable = false)
     private BigDecimal claimAmount;
@@ -23,8 +27,10 @@ public class Claim {
     @Column(nullable = false)
     private String status;
 
+    protected Claim() {}
+
     public UUID getId() { return id; }
-    public UUID getVisitId() { return visitId; }
+    public Visit getVisit() { return visit; }
     public BigDecimal getClaimAmount() { return claimAmount; }
     public BigDecimal getPaidAmount() { return paidAmount; }
     public String getStatus() { return status; }

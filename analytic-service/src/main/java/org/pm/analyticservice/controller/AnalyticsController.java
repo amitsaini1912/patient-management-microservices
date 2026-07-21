@@ -1,7 +1,9 @@
 package org.pm.analyticservice.controller;
 
 import org.pm.analyticservice.dto.DepartmentDenialRate;
+import org.pm.analyticservice.dto.DepartmentRank;
 import org.pm.analyticservice.dto.DepartmentRevenue;
+import org.pm.analyticservice.dto.MonthlyTrend;
 import org.pm.analyticservice.repository.ClaimRepository;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -23,8 +25,18 @@ public class AnalyticsController {
         return claimRepository.getRevenueByDepartment();
     }
 
+    @GetMapping("/monthly-trend")
+    public List<MonthlyTrend> monthlyTrend() {
+        return claimRepository.getMonthlyTrend();
+    }
+
     @GetMapping("/denial-rate-by-department")
     public List<DepartmentDenialRate> denialRateByDepartment() {
         return claimRepository.getDenialRateByDepartment();
+    }
+
+    @GetMapping("/revenue-ranking")
+    public List<DepartmentRank> revenueRanking() {
+        return claimRepository.getDepartmentRevenueRanking();
     }
 }

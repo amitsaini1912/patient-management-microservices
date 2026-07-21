@@ -1,7 +1,9 @@
 package org.pm.analyticservice.repository;
 
 import org.pm.analyticservice.dto.DepartmentDenialRate;
+import org.pm.analyticservice.dto.DepartmentRank;
 import org.pm.analyticservice.dto.DepartmentRevenue;
+import org.pm.analyticservice.dto.MonthlyTrend;
 import org.pm.analyticservice.model.Claim;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -33,4 +35,32 @@ public interface ClaimRepository extends JpaRepository<Claim, UUID> {
           ORDER BY denialRatePct DESC                                                                                                                
           """, nativeQuery = true)
     List<DepartmentDenialRate> getDenialRateByDepartment();
+
+    @Query(value = """                                                                                                                                 
+      SELECT v.department                                   AS department,                                                                           
+             SUM(c.claim_amount)                            AS totalClaimed,                                                                         
+             RANK() OVER (ORDER BY SUM(c.claim_amount) DESC) AS revenueRank                                                                          
+      FROM claim c                                                                                                                                   
+      JOIN visit v ON c.visit_id = v.id                                                                                                              
+      GROUP BY v.department                                                                                                                          
+      ORDER BY revenueRank                                                                                                                           
+      """, nativeQuery = true)
+    List<DepartmentRank> getDepartmentRevenueRanking();
+
+    @Query(value = """
+      WITH monthly AS (
+          SELECT DATE_TRUNC('month', v.visit_date)::date AS month,
+                 SUM(c.claim_amount)                     AS monthly_total
+          FROM claim c
+          JOIN visit v ON c.visit_id = v.id
+          GROUP BY DATE_TRUNC('month', v.visit_date)
+      )
+      SELECT month                                          AS month,
+             monthly_total                                  AS monthlyTotal,
+             SUM(monthly_total) OVER (ORDER BY month)       AS runningTotal,
+             LAG(monthly_total) OVER (ORDER BY month)       AS prevMonthTotal
+      FROM monthly
+      ORDER BY month
+      """, nativeQuery = true)
+    List<MonthlyTrend> getMonthlyTrend();
 }

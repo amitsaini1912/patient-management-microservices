@@ -77,6 +77,14 @@
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
+
+        <!-- In-memory DB for tests: contextLoads() boots on H2 (PostgreSQL mode)
+             so CI needs no real Postgres. Flyway still builds the schema. -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

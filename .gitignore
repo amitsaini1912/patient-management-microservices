@@ -1,3 +1,5 @@
 \# Learning notes (personal study material — not part of the project)
 learning-notes/
 *.pdf
+# Local secrets (copy from .env.example)
+.env

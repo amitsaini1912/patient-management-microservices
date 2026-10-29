@@ -19,6 +19,16 @@ spec:
           ports:
             - containerPort: 4001      # HTTP
             - containerPort: 9001      # gRPC
+          env:
+            - name: BILLING_DB_URL
+              value: jdbc:postgresql://billing-db:5432/billing   # billing-db Service
+            - name: BILLING_DB_USER
+              value: billing
+            - name: BILLING_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: billing-secrets
+                  key: postgres-password
 ---
 apiVersion: v1
 kind: Service

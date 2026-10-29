@@ -1,0 +1,21 @@
+# Local development stack. Grows one service at a time (see each day's notes).
+#   cp .env.example .env      # then set real passwords
+#   docker compose up -d billing-db
+services:
+  billing-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: billing
+      POSTGRES_USER: ${BILLING_DB_USER:-billing}
+      POSTGRES_PASSWORD: ${BILLING_DB_PASSWORD:?set BILLING_DB_PASSWORD in .env}
+    ports:
+      - "5434:5432"   # 5433 is already used by the local analytics DB
+    volumes:
+      - billing-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${BILLING_DB_USER:-billing} -d billing"]
+      interval: 5s
+      retries: 10
+
+volumes:
+  billing-db-data:

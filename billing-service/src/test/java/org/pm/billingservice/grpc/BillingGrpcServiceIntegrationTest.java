@@ -7,6 +7,10 @@ import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
 import org.junit.jupiter.api.Test;
 import org.pm.billingservice.TestcontainersConfiguration;
+import org.pm.billingservice.ledger.AccountType;
+import org.pm.billingservice.ledger.LedgerAccount;
+import org.pm.billingservice.ledger.LedgerService;
+import org.pm.billingservice.money.Money;
 import org.pm.billingservice.repository.BillingAccountRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -24,6 +28,9 @@ class BillingGrpcServiceIntegrationTest {
 
     @Autowired
     private BillingAccountRepository billingAccountRepository;
+
+    @Autowired
+    private LedgerService ledgerService;
 
     @Test
     void createsRealAccountInsteadOfStub() {
@@ -44,6 +51,16 @@ class BillingGrpcServiceIntegrationTest {
         String second = call(patientId).response.getAccountId();
 
         assertThat(second).isEqualTo(first);
+    }
+
+    @Test
+    void newAccountGetsEmptyPatientReceivable() {
+        String accountId = call(UUID.randomUUID().toString()).response.getAccountId();
+
+        LedgerAccount receivable = ledgerService.patientReceivable(UUID.fromString(accountId));
+
+        assertThat(receivable.getType()).isEqualTo(AccountType.ASSET);
+        assertThat(ledgerService.balanceOf(receivable)).isEqualTo(Money.ofMinor(0, "INR"));
     }
 
     @Test

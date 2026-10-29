@@ -137,7 +137,7 @@ class PaymentTest {
         Payment payment = newPayment(1_000_00);
 
         payment.holdForReview();
-        payment.authorize();
+        payment.authorize("auth_test");
 
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.AUTHORIZED);
     }
@@ -150,7 +150,7 @@ class PaymentTest {
 
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.FAILED);
         assertThat(payment.getFailureReason()).isEqualTo("issuer declined: insufficient funds");
-        assertThatThrownBy(payment::authorize).isInstanceOf(IllegalPaymentStateException.class);
+        assertThatThrownBy(() -> payment.authorize("auth_test")).isInstanceOf(IllegalPaymentStateException.class);
     }
 
     @Test
@@ -167,7 +167,7 @@ class PaymentTest {
 
     private static Payment authorized(long paise) {
         Payment payment = newPayment(paise);
-        payment.authorize();
+        payment.authorize("auth_test");
         return payment;
     }
 

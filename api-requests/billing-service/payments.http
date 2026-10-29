@@ -1,0 +1,36 @@
+### Payments through the gateway -> requires the JWT from auth-service/login.http
+### billingAccountId: the account created when the patient was created (patient-service -> gRPC -> billing).
+### Find it with: docker compose exec billing-db psql -U billing -d billing -c 'select id, patient_id from billing_account'
+### Test cards: pm_card_visa (approved), pm_card_declined, pm_card_insufficient_funds
+
+### Authorize ₹1,000.00 (amount is a STRING)
+POST http://localhost:4004/api/payments
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "billingAccountId": "{{billingAccountId}}",
+  "amount": "1000.00",
+  "currency": "INR",
+  "paymentMethodToken": "pm_card_visa"
+}
+
+> {% client.global.set("paymentId", response.body.id) %}
+
+### Get the payment
+GET http://localhost:4004/api/payments/{{paymentId}}
+Authorization: Bearer {{token}}
+
+### Partial capture ₹600.00 (send no body to capture the full amount)
+POST http://localhost:4004/api/payments/{{paymentId}}/capture
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "amount": "600.00",
+  "currency": "INR"
+}
+
+### Void -> 409 after a capture (only an AUTHORIZED payment can be voided)
+POST http://localhost:4004/api/payments/{{paymentId}}/void
+Authorization: Bearer {{token}}

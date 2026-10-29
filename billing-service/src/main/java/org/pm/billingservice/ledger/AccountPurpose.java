@@ -10,6 +10,8 @@ public enum AccountPurpose {
     PATIENT_RECEIVABLE(AccountType.ASSET),
     /** What an insurer owes the hospital for a claim. */
     INSURER_RECEIVABLE(AccountType.ASSET),
+    /** Card money the acquirer collected for us but hasn't paid out yet. Cleared at settlement. */
+    PROCESSOR_RECEIVABLE(AccountType.ASSET),
     /** Money the hospital has earned. */
     HOSPITAL_REVENUE(AccountType.REVENUE),
     /** Money given back; kept apart from revenue so refunds stay visible (a "contra-revenue" account). */

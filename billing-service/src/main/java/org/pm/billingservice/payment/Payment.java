@@ -51,6 +51,10 @@ public class Payment {
     @Column(name = "failure_reason")
     private String failureReason;
 
+    // the processor's id for the authorization; null until authorized
+    @Column(name = "processor_reference")
+    private String processorReference;
+
     // Long, not long: Spring Data treats "version == null" as a new entity, so save() persists
     // instead of merging even though we assign the UUID ourselves.
     @Version
@@ -87,8 +91,12 @@ public class Payment {
         moveTo(PaymentStatus.PENDING_REVIEW);
     }
 
-    public void authorize() {
+    public void authorize(String processorReference) {
+        if (processorReference == null || processorReference.isBlank()) {
+            throw new IllegalArgumentException("processor reference is required");
+        }
         moveTo(PaymentStatus.AUTHORIZED);
+        this.processorReference = processorReference;
     }
 
     public void fail(String reason) {
@@ -101,17 +109,27 @@ public class Payment {
 
     /** Take all or part of the authorized amount. One capture only; the rest of the hold is released. */
     public void capture(Money captureAmount) {
+        checkCapture(captureAmount);
+        this.capturedAmountMinor = captureAmount.amountMinor();
+        moveTo(PaymentStatus.CAPTURED);
+    }
+
+    /** Throws exactly what capture() would, without changing anything. Lets callers fail before calling the processor. */
+    public void checkCapture(Money captureAmount) {
         requirePositiveInOurCurrency(captureAmount);
         PaymentStateMachine.requireMove(id, status, PaymentStatus.CAPTURED);
         if (captureAmount.amountMinor() > amountMinor) {
             throw new IllegalArgumentException("cannot capture " + captureAmount + ", only " + getAmount() + " is authorized");
         }
-        this.capturedAmountMinor = captureAmount.amountMinor();
-        moveTo(PaymentStatus.CAPTURED);
     }
 
     public void voidAuthorization() {
         moveTo(PaymentStatus.VOIDED);
+    }
+
+    /** Throws exactly what voidAuthorization() would, without changing anything. */
+    public void checkVoid() {
+        PaymentStateMachine.requireMove(id, status, PaymentStatus.VOIDED);
     }
 
     public void expire() {
@@ -163,6 +181,7 @@ public class Payment {
     public Money getRefundableAmount() { return new Money(capturedAmountMinor - refundedAmountMinor, currency); }
     public PaymentStatus getStatus() { return status; }
     public String getFailureReason() { return failureReason; }
+    public String getProcessorReference() { return processorReference; }
     public Long getVersion() { return version; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

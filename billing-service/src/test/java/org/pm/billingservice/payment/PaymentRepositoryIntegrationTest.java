@@ -64,7 +64,7 @@ class PaymentRepositoryIntegrationTest {
     void everyChangeBumpsVersion() {
         UUID id = paymentRepository.save(Payment.create(billingAccountId, inr(1_000_00))).getId();
 
-        change(id, Payment::authorize);
+        change(id, p -> p.authorize("auth_test"));
         change(id, p -> p.capture(inr(1_000_00)));
 
         Payment loaded = paymentRepository.findById(id).orElseThrow();
@@ -81,7 +81,7 @@ class PaymentRepositoryIntegrationTest {
     @Test
     void concurrentCaptureAndVoidOneWinsOneFails() throws Exception {
         UUID id = paymentRepository.save(Payment.create(billingAccountId, inr(1_000_00))).getId();
-        change(id, Payment::authorize);
+        change(id, p -> p.authorize("auth_test"));
 
         CyclicBarrier bothLoaded = new CyclicBarrier(2);
         ExecutorService pool = Executors.newFixedThreadPool(2);
@@ -113,7 +113,7 @@ class PaymentRepositoryIntegrationTest {
     @Test
     void staleCopyCannotOverwriteNewerRow() {
         UUID id = paymentRepository.save(Payment.create(billingAccountId, inr(1_000_00))).getId();
-        change(id, Payment::authorize);
+        change(id, p -> p.authorize("auth_test"));
         Payment stale = paymentRepository.findById(id).orElseThrow(); // version 1, detached after this call
 
         change(id, Payment::voidAuthorization);                       // DB is now version 2

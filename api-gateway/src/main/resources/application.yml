@@ -27,6 +27,15 @@ spring:
             - JwtValidation  # -> We use where we need the validation on endpoint
                              # -> All requests coming to this url is Authorized
 
+        # Route for /api/payments/** to billing-service (HTTP port; gRPC is 9001)
+        - id: billing-service-payments-route
+          uri: http://billing-service:4001
+          predicates:
+            - Path=/api/payments/**
+          filters:
+            - StripPrefix=1   # /api/payments/{id}/capture -> /payments/{id}/capture
+            - JwtValidation   # payments always need a logged-in user
+
         # Route for /api/docs/patients to patient-service /v3/api-docs
         - id: api-docs-patient-route
           uri: http://patient-service:4000

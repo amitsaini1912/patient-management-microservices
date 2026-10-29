@@ -10,3 +10,4 @@ a new ADR supersedes an old one.
 | [0002](0002-billing-on-spring-boot-3-4.md) | billing-service on Spring Boot 3.4.1 like the other services | Accepted |
 | [0003](0003-double-entry-ledger.md) | Double-entry, append-only ledger enforced in code and in Postgres | Accepted |
 | [0004](0004-payment-state-machine-optimistic-locking.md) | Payment state machine as an explicit transition table + `@Version` optimistic locking | Accepted |
+| [0005](0005-payment-api-processor-calls-and-postings.md) | Payment API: processor calls outside DB transactions; ledger posts only when money moves | Accepted |

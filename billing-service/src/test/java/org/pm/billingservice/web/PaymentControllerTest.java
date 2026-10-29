@@ -7,6 +7,7 @@ import org.pm.billingservice.payment.Payment;
 import org.pm.billingservice.payment.PaymentNotFoundException;
 import org.pm.billingservice.payment.PaymentService;
 import org.pm.billingservice.payment.PaymentStatus;
+import org.pm.billingservice.payment.Refund;
 import org.pm.billingservice.payment.UnknownBillingAccountException;
 import org.pm.billingservice.processor.PaymentProcessorException;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,6 +15,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import java.util.List;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -156,6 +158,63 @@ class PaymentControllerTest {
         mvc.perform(post("/payments/{id}/void", payment.getId()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("VOIDED"));
+    }
+
+    @Test
+    void refundReturns201WithLocation() throws Exception {
+        UUID paymentId = UUID.randomUUID();
+        Refund refund = new Refund(paymentId, inr(300_00), "re_test", "item returned");
+        when(paymentService.refund(paymentId, inr(300_00), "item returned")).thenReturn(refund);
+
+        mvc.perform(post("/payments/{id}/refunds", paymentId).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":\"300.00\",\"currency\":\"INR\",\"reason\":\"item returned\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(header().string("Location", "/payments/" + paymentId + "/refunds/" + refund.getId()))
+                .andExpect(jsonPath("$.amount").value("300.00"))
+                .andExpect(jsonPath("$.reason").value("item returned"));
+    }
+
+    @Test
+    void refundWithoutBodyRefundsEverythingLeft() throws Exception {
+        UUID paymentId = UUID.randomUUID();
+        when(paymentService.refund(eq(paymentId), isNull(), isNull()))
+                .thenReturn(new Refund(paymentId, inr(1_000_00), "re_test", null));
+
+        mvc.perform(post("/payments/{id}/refunds", paymentId))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.amount").value("1000.00"));
+    }
+
+    @Test
+    void refundAmountWithoutCurrencyIs400() throws Exception {
+        mvc.perform(post("/payments/{id}/refunds", UUID.randomUUID()).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":\"10.00\"}"))
+                .andExpect(status().isBadRequest());
+
+        verify(paymentService, never()).refund(any(), any(), any());
+    }
+
+    @Test
+    void refundOfUncapturedPaymentIs409() throws Exception {
+        UUID id = UUID.randomUUID();
+        when(paymentService.refund(eq(id), any(), any()))
+                .thenThrow(new IllegalPaymentStateException(id, PaymentStatus.AUTHORIZED, PaymentStatus.REFUNDED));
+
+        mvc.perform(post("/payments/{id}/refunds", id))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void listsRefunds() throws Exception {
+        UUID paymentId = UUID.randomUUID();
+        when(paymentService.refunds(paymentId)).thenReturn(List.of(
+                new Refund(paymentId, inr(100_00), "re_1", null),
+                new Refund(paymentId, inr(200_00), "re_2", null)));
+
+        mvc.perform(get("/payments/{id}/refunds", paymentId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].amount").value("100.00"))
+                .andExpect(jsonPath("$[1].amount").value("200.00"));
     }
 
     @Test

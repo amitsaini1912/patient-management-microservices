@@ -24,7 +24,7 @@ public class FakePaymentProcessor implements PaymentProcessor {
 
     public enum HoldState { AUTHORIZED, CAPTURED, VOIDED }
 
-    public record Hold(Money authorized, Money captured, HoldState state) {}
+    public record Hold(Money authorized, Money captured, Money refunded, HoldState state) {}
 
     private final Map<String, Hold> holds = new ConcurrentHashMap<>();
 
@@ -37,7 +37,8 @@ public class FakePaymentProcessor implements PaymentProcessor {
             return AuthorizationResult.declined("insufficient_funds");
         }
         String reference = "auth_" + UUID.randomUUID();
-        holds.put(reference, new Hold(amount, Money.zero(amount.currency()), HoldState.AUTHORIZED));
+        Money zero = Money.zero(amount.currency());
+        holds.put(reference, new Hold(amount, zero, zero, HoldState.AUTHORIZED));
         return AuthorizationResult.approved(reference);
     }
 
@@ -49,7 +50,7 @@ public class FakePaymentProcessor implements PaymentProcessor {
             if (amount.isGreaterThan(hold.authorized())) {
                 throw new PaymentProcessorException("capture " + amount + " exceeds hold " + hold.authorized());
             }
-            return new Hold(hold.authorized(), amount, HoldState.CAPTURED);
+            return new Hold(hold.authorized(), amount, hold.refunded(), HoldState.CAPTURED);
         });
     }
 
@@ -57,8 +58,23 @@ public class FakePaymentProcessor implements PaymentProcessor {
     public void voidAuthorization(String processorReference) {
         holds.compute(processorReference, (reference, hold) -> {
             requireAuthorized(reference, hold);
-            return new Hold(hold.authorized(), hold.captured(), HoldState.VOIDED);
+            return new Hold(hold.authorized(), hold.captured(), hold.refunded(), HoldState.VOIDED);
         });
+    }
+
+    @Override
+    public String refund(String processorReference, Money amount) {
+        holds.compute(processorReference, (reference, hold) -> {
+            if (hold == null || hold.state() != HoldState.CAPTURED) {
+                throw new PaymentProcessorException("authorization " + reference + " has nothing captured to refund");
+            }
+            Money refundedAfter = hold.refunded().plus(amount);
+            if (refundedAfter.isGreaterThan(hold.captured())) {
+                throw new PaymentProcessorException("refund " + amount + " exceeds what is left of " + hold.captured());
+            }
+            return new Hold(hold.authorized(), hold.captured(), refundedAfter, HoldState.CAPTURED);
+        });
+        return "re_" + UUID.randomUUID();
     }
 
     /** For tests: what the "acquirer" thinks happened. */

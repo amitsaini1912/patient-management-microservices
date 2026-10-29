@@ -55,6 +55,10 @@ public class Payment {
     @Column(name = "processor_reference")
     private String processorReference;
 
+    // when the hold was placed; the expiry job counts from here
+    @Column(name = "authorized_at")
+    private Instant authorizedAt;
+
     // Long, not long: Spring Data treats "version == null" as a new entity, so save() persists
     // instead of merging even though we assign the UUID ourselves.
     @Version
@@ -97,6 +101,7 @@ public class Payment {
         }
         moveTo(PaymentStatus.AUTHORIZED);
         this.processorReference = processorReference;
+        this.authorizedAt = Instant.now();
     }
 
     public void fail(String reason) {
@@ -138,19 +143,21 @@ public class Payment {
 
     /** Give back some or all of the captured money. Several partial refunds are allowed. */
     public void refund(Money refundAmount) {
+        checkRefund(refundAmount);
+        this.refundedAmountMinor += refundAmount.amountMinor();
+        moveTo(refundedAmountMinor == capturedAmountMinor ? PaymentStatus.REFUNDED : PaymentStatus.PARTIALLY_REFUNDED);
+    }
+
+    /** Throws exactly what refund() would, without changing anything. */
+    public void checkRefund(Money refundAmount) {
+        // State first, so "refund before capture" or "refund after full refund" is a 409, not an amount error.
+        // Every state a refund can start from (CAPTURED, PARTIALLY_REFUNDED) can reach REFUNDED.
+        PaymentStateMachine.requireMove(id, status, PaymentStatus.REFUNDED);
         requirePositiveInOurCurrency(refundAmount);
-        long refundedAfter = Math.addExact(refundedAmountMinor, refundAmount.amountMinor());
-        PaymentStatus next = refundedAfter == capturedAmountMinor
-                ? PaymentStatus.REFUNDED
-                : PaymentStatus.PARTIALLY_REFUNDED;
-        // state first: refunding a payment that was never captured is a 409, not an amount error
-        PaymentStateMachine.requireMove(id, status, next);
-        if (refundedAfter > capturedAmountMinor) {
+        if (Math.addExact(refundedAmountMinor, refundAmount.amountMinor()) > capturedAmountMinor) {
             throw new IllegalArgumentException("cannot refund " + refundAmount + ", only "
                     + getRefundableAmount() + " is left to refund");
         }
-        this.refundedAmountMinor = refundedAfter;
-        moveTo(next);
     }
 
     private void moveTo(PaymentStatus next) {
@@ -182,6 +189,7 @@ public class Payment {
     public PaymentStatus getStatus() { return status; }
     public String getFailureReason() { return failureReason; }
     public String getProcessorReference() { return processorReference; }
+    public Instant getAuthorizedAt() { return authorizedAt; }
     public Long getVersion() { return version; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

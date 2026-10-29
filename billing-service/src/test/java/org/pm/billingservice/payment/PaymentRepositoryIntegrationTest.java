@@ -154,11 +154,12 @@ class PaymentRepositoryIntegrationTest {
         });
     }
 
+    // every status used here comes after authorization, so authorized_at is set (V5 CHECK)
     private void insertRaw(String status, long amount, long captured, long refunded) {
         jdbc.update("""
                 INSERT INTO payment (id, billing_account_id, amount_minor, currency, captured_amount_minor,
-                                     refunded_amount_minor, status, version)
-                VALUES (?, ?, ?, 'INR', ?, ?, ?, 0)""",
+                                     refunded_amount_minor, status, version, authorized_at)
+                VALUES (?, ?, ?, 'INR', ?, ?, ?, 0, now())""",
                 UUID.randomUUID(), billingAccountId, amount, captured, refunded, status);
     }
 

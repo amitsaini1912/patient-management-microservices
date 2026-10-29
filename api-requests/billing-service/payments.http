@@ -34,3 +34,18 @@ Authorization: Bearer {{token}}
 ### Void -> 409 after a capture (only an AUTHORIZED payment can be voided)
 POST http://localhost:4004/api/payments/{{paymentId}}/void
 Authorization: Bearer {{token}}
+
+### Partial refund ₹200.00 of a CAPTURED payment (send no body to refund everything left)
+POST http://localhost:4004/api/payments/{{paymentId}}/refunds
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "amount": "200.00",
+  "currency": "INR",
+  "reason": "one test cancelled"
+}
+
+### List refunds of a payment
+GET http://localhost:4004/api/payments/{{paymentId}}/refunds
+Authorization: Bearer {{token}}

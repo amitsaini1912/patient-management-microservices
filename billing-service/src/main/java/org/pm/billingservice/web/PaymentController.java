@@ -2,10 +2,12 @@ package org.pm.billingservice.web;
 
 import jakarta.validation.Valid;
 import java.net.URI;
+import java.util.List;
 import java.util.UUID;
 import org.pm.billingservice.money.Money;
 import org.pm.billingservice.payment.Payment;
 import org.pm.billingservice.payment.PaymentService;
+import org.pm.billingservice.payment.Refund;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -53,5 +55,22 @@ public class PaymentController {
     @PostMapping("/{id}/void")
     public PaymentResponse voidAuthorization(@PathVariable UUID id) {
         return PaymentResponse.from(paymentService.voidAuthorization(id));
+    }
+
+    /** A refund is its own resource (one payment can have several), so this is 201 + Location. */
+    @PostMapping("/{id}/refunds")
+    public ResponseEntity<RefundResponse> refund(@PathVariable UUID id,
+                                                 @Valid @RequestBody(required = false) RefundPaymentRequest request) {
+        Money amount = request == null || request.amount() == null
+                ? null // refund everything still refundable
+                : Money.parse(request.amount(), request.currency());
+        Refund refund = paymentService.refund(id, amount, request == null ? null : request.reason());
+        return ResponseEntity.created(URI.create("/payments/" + id + "/refunds/" + refund.getId()))
+                .body(RefundResponse.from(refund));
+    }
+
+    @GetMapping("/{id}/refunds")
+    public List<RefundResponse> refunds(@PathVariable UUID id) {
+        return paymentService.refunds(id).stream().map(RefundResponse::from).toList();
     }
 }

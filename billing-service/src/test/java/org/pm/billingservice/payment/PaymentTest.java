@@ -26,6 +26,17 @@ class PaymentTest {
     }
 
     @Test
+    void authorizeRecordsReferenceAndTime() {
+        Payment payment = newPayment(1_000_00);
+        assertThat(payment.getAuthorizedAt()).isNull();
+
+        payment.authorize("auth_123");
+
+        assertThat(payment.getProcessorReference()).isEqualTo("auth_123");
+        assertThat(payment.getAuthorizedAt()).isNotNull();
+    }
+
+    @Test
     void fullCapture() {
         Payment payment = authorized(1_000_00);
 

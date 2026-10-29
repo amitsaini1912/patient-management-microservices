@@ -18,6 +18,12 @@ public interface PaymentProcessor {
     /** Take all or part of a held amount. Throws {@link PaymentProcessorException} if the processor refuses. */
     void capture(String processorReference, Money amount);
 
-    /** Release the hold. Throws {@link PaymentProcessorException} if the processor refuses. */
+    /** Release the hold (cancel, or after our expiry). Throws {@link PaymentProcessorException} if the processor refuses. */
     void voidAuthorization(String processorReference);
+
+    /**
+     * Send part or all of a captured amount back to the card. Returns the processor's id for this refund.
+     * Throws {@link PaymentProcessorException} if the processor refuses (e.g. more than is left to refund).
+     */
+    String refund(String processorReference, Money amount);
 }

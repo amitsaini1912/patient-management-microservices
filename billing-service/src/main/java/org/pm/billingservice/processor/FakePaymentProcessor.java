@@ -6,6 +6,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 import org.pm.billingservice.money.Money;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
@@ -22,6 +23,7 @@ import org.springframework.stereotype.Component;
  * first call's result and does nothing again. Failed calls are not remembered (they can be retried).
  */
 @Component
+@ConditionalOnProperty(name = "billing.processor", havingValue = "fake") // tests; see SimulatorPaymentProcessor
 public class FakePaymentProcessor implements PaymentProcessor {
 
     public static final String DECLINED_TOKEN = "pm_card_declined";

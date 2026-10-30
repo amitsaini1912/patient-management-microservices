@@ -261,16 +261,22 @@ class IdempotencyIntegrationTest {
     }
 
     @Test
-    void concurrentCapturesWithDifferentKeysGiveOne200AndOtherwise409() throws Exception {
-        // different keys = the client really sent several requests; only one can win, the rest are told why
+    void concurrentIdenticalCapturesWithDifferentKeysAllSucceedButCaptureOnce() throws Exception {
+        // Different keys = the client really sent several "capture everything" requests at once. They share one
+        // processor key (payment + amount), so the acquirer captures once; each request then finds the capture
+        // already recorded and answers 200 with it (ADR 0010). Day 5 answered the losers 409 - also correct, but
+        // step 3 can't tell a racing request from the acquirer's webhook, and both mean "this capture happened".
         String paymentId = id(send("/payments", newKey(), createBody("1000.00")));
         processor.setLatency(Duration.ofMillis(300)); // all of them pass the state check before anyone records
 
         List<HttpResponse<String>> responses = concurrently(() -> send("/payments/" + paymentId + "/capture", newKey(), ""));
 
-        assertThat(responses).extracting(HttpResponse::statusCode).containsOnly(200, 409); // no 502 any more
-        assertThat(responses).filteredOn(r -> r.statusCode() == 200).hasSize(1);
+        assertThat(responses).extracting(HttpResponse::statusCode).containsOnly(200);
+        assertThat(processor.executions("capture:" + paymentId + ":100000:INR")).isEqualTo(1);
         assertThat(processor.hold(processorReferenceOf(paymentId)).captured()).isEqualTo(Money.ofMinor(1_000_00, "INR"));
+        // one capture recorded = one ledger posting + one event
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM outbox_event WHERE aggregate_id = ? AND event_type = 'payment.captured'",
+                Integer.class, UUID.fromString(paymentId))).isEqualTo(1);
     }
 
     // ---- helpers ----

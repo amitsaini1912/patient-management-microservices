@@ -18,6 +18,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -91,8 +93,11 @@ public class PaymentService {
 
         AuthorizationResult result = paymentProcessor.authorize("authorize:" + paymentId, paymentId, amount, paymentMethodToken);
 
-        return transactionTemplate.execute(tx -> {
+        return retryOnVersionConflict(() -> transactionTemplate.execute(tx -> {
             Payment payment = load(created.getId());
+            if (payment.getStatus() != PaymentStatus.CREATED && sameOutcome(payment, result)) {
+                return payment; // the acquirer's webhook got here first and recorded exactly this (ADR 0010)
+            }
             if (result.approved()) {
                 payment.authorize(result.processorReference());
                 paymentEvents.authorized(payment);
@@ -101,7 +106,7 @@ public class PaymentService {
                 paymentEvents.failed(payment);
             }
             return payment;
-        });
+        }));
     }
 
     /**
@@ -117,13 +122,18 @@ public class PaymentService {
         // this one, gets the processor's first answer instead of a refusal, then gets 409 from the state check / @Version.
         paymentProcessor.capture(captureKey(paymentId, captureAmount), current.getProcessorReference(), captureAmount);
 
-        return transactionTemplate.execute(tx -> {
+        return retryOnVersionConflict(() -> transactionTemplate.execute(tx -> {
             Payment payment = load(paymentId);
+            if (payment.getStatus() == PaymentStatus.CAPTURED && payment.getCapturedAmount().equals(captureAmount)) {
+                // Already recorded: by the acquirer's webhook, or by a concurrent request for the same capture
+                // (same processor key, so the acquirer captured once). Either way this capture happened, once.
+                return payment;
+            }
             payment.capture(captureAmount);
             postCapture(payment, captureAmount);
             paymentEvents.captured(payment);
             return payment;
-        });
+        }));
     }
 
     /** Releases the hold. No money moved, so no ledger entry. */
@@ -133,12 +143,15 @@ public class PaymentService {
 
         paymentProcessor.voidAuthorization(voidKey(paymentId), current.getProcessorReference());
 
-        return transactionTemplate.execute(tx -> {
+        return retryOnVersionConflict(() -> transactionTemplate.execute(tx -> {
             Payment payment = load(paymentId);
+            if (payment.getStatus() == PaymentStatus.VOIDED) {
+                return payment; // already recorded (webhook or a concurrent void): same processor key, one void
+            }
             payment.voidAuthorization();
             paymentEvents.voided(payment);
             return payment;
-        });
+        }));
     }
 
     /**
@@ -217,6 +230,84 @@ public class PaymentService {
                 .credit(patientReceivable, amount)
                 .debit(patientReceivable, amount)
                 .credit(processorReceivable, amount));
+    }
+
+    /**
+     * Applies a verified acquirer webhook (ADR 0010). Must run inside the caller's transaction, which also stores the
+     * webhook_event row. Webhooks only move a payment FORWARD, along the state machine:
+     *   - the payment is behind the acquirer (our step 3 failed: crash, DB down) -> catch up = APPLIED
+     *   - the payment is already there or past it (normal case, duplicates, out-of-order) -> IGNORED_STALE
+     *   - the event needs a state we haven't reached yet (captured while we're still CREATED) -> not ready,
+     *     the caller answers 409 so the acquirer retries later
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public GatewayEventOutcome applyGatewayEvent(GatewayEvent event) {
+        Optional<Payment> found = paymentRepository.findById(event.paymentId());
+        if (found.isEmpty()) {
+            return GatewayEventOutcome.IGNORED_UNKNOWN_PAYMENT;
+        }
+        Payment payment = found.get();
+        if (!payment.getAmount().currency().getCurrencyCode().equals(event.currency())
+                || (payment.getProcessorReference() != null && !payment.getProcessorReference().equals(event.authorizationId()))) {
+            log.warn("webhook {} doesn't match payment {} (currency/authorization), ignored", event.eventId(), payment.getId());
+            return GatewayEventOutcome.IGNORED_MISMATCH;
+        }
+        PaymentStatus status = payment.getStatus();
+        switch (event.type()) {
+            case "payment.authorized" -> {
+                if (status != PaymentStatus.CREATED) {
+                    return GatewayEventOutcome.IGNORED_STALE;
+                }
+                payment.authorize(event.authorizationId());
+                paymentEvents.authorized(payment);
+            }
+            case "payment.failed" -> {
+                if (status != PaymentStatus.CREATED) {
+                    return GatewayEventOutcome.IGNORED_STALE;
+                }
+                payment.fail(event.declineReason() != null ? event.declineReason() : "declined");
+                paymentEvents.failed(payment);
+            }
+            case "payment.captured" -> {
+                if (status == PaymentStatus.CREATED) {
+                    throw new GatewayEventNotReadyException(event.eventId(), status);
+                }
+                if (status != PaymentStatus.AUTHORIZED) {
+                    return GatewayEventOutcome.IGNORED_STALE;
+                }
+                Money captured = new Money(event.capturedMinor(), payment.getAmount().currency());
+                payment.capture(captured);
+                postCapture(payment, captured);
+                paymentEvents.captured(payment);
+            }
+            case "payment.voided" -> {
+                if (status == PaymentStatus.CREATED) {
+                    throw new GatewayEventNotReadyException(event.eventId(), status);
+                }
+                if (status != PaymentStatus.AUTHORIZED) {
+                    return GatewayEventOutcome.IGNORED_STALE;
+                }
+                payment.voidAuthorization();
+                paymentEvents.voided(payment);
+            }
+            case "payment.refunded" -> {
+                // Refund rows are created by our own call path (they carry our refund id). A refund the webhook
+                // knows about but we don't is left to reconciliation (Day 8), not guessed here.
+                return GatewayEventOutcome.RECORDED;
+            }
+            default -> {
+                return GatewayEventOutcome.IGNORED_UNKNOWN_TYPE;
+            }
+        }
+        log.info("webhook {} ({}) moved payment {} from {} to {}", event.eventId(), event.type(), payment.getId(),
+                status, payment.getStatus());
+        return GatewayEventOutcome.APPLIED;
+    }
+
+    private static boolean sameOutcome(Payment payment, AuthorizationResult result) {
+        return result.approved()
+                ? result.processorReference().equals(payment.getProcessorReference())
+                : payment.getStatus() == PaymentStatus.FAILED;
     }
 
     /** Shared with the expiry job: our void and the job's void of the same hold are one processor call. */

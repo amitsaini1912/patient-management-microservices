@@ -60,7 +60,7 @@ class PaymentServiceIntegrationTest {
 
     @Test
     void approvedAuthorizationHoldsMoneyButPostsNothing() {
-        Payment payment = paymentService.authorize(billingAccountId, inr(1_000_00), CARD);
+        Payment payment = paymentService.authorize(newKey(), billingAccountId, inr(1_000_00), CARD);
 
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.AUTHORIZED);
         assertThat(paymentRepository.findById(payment.getId()).orElseThrow().getStatus()).isEqualTo(PaymentStatus.AUTHORIZED);
@@ -71,7 +71,7 @@ class PaymentServiceIntegrationTest {
 
     @Test
     void declinedCardFailsWithReasonAndPostsNothing() {
-        Payment payment = paymentService.authorize(billingAccountId, inr(1_000_00), FakePaymentProcessor.DECLINED_TOKEN);
+        Payment payment = paymentService.authorize(newKey(), billingAccountId, inr(1_000_00), FakePaymentProcessor.DECLINED_TOKEN);
 
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.FAILED);
         assertThat(payment.getFailureReason()).isEqualTo("card_declined");
@@ -81,7 +81,7 @@ class PaymentServiceIntegrationTest {
 
     @Test
     void fullCapturePostsChargeAndCardPayment() {
-        Payment payment = paymentService.authorize(billingAccountId, inr(1_000_00), CARD);
+        Payment payment = paymentService.authorize(newKey(), billingAccountId, inr(1_000_00), CARD);
 
         Payment captured = paymentService.capture(payment.getId(), null);
 
@@ -97,7 +97,7 @@ class PaymentServiceIntegrationTest {
 
     @Test
     void partialCapturePostsOnlyCapturedAmount() {
-        Payment payment = paymentService.authorize(billingAccountId, inr(1_000_00), CARD);
+        Payment payment = paymentService.authorize(newKey(), billingAccountId, inr(1_000_00), CARD);
 
         Payment captured = paymentService.capture(payment.getId(), inr(600_00));
 
@@ -109,7 +109,7 @@ class PaymentServiceIntegrationTest {
 
     @Test
     void captureAboveAuthorizedIsRejectedBeforeCallingProcessor() {
-        Payment payment = paymentService.authorize(billingAccountId, inr(1_000_00), CARD);
+        Payment payment = paymentService.authorize(newKey(), billingAccountId, inr(1_000_00), CARD);
 
         assertThatThrownBy(() -> paymentService.capture(payment.getId(), inr(1_000_01)))
                 .isInstanceOf(IllegalArgumentException.class);
@@ -120,7 +120,7 @@ class PaymentServiceIntegrationTest {
 
     @Test
     void voidReleasesHoldAndPostsNothing() {
-        Payment payment = paymentService.authorize(billingAccountId, inr(1_000_00), CARD);
+        Payment payment = paymentService.authorize(newKey(), billingAccountId, inr(1_000_00), CARD);
 
         Payment voided = paymentService.voidAuthorization(payment.getId());
 
@@ -131,7 +131,7 @@ class PaymentServiceIntegrationTest {
 
     @Test
     void captureAfterVoidIsStateErrorAndNeverReachesProcessor() {
-        Payment payment = paymentService.authorize(billingAccountId, inr(1_000_00), CARD);
+        Payment payment = paymentService.authorize(newKey(), billingAccountId, inr(1_000_00), CARD);
         paymentService.voidAuthorization(payment.getId());
 
         // if the processor were called, the fake would throw PaymentProcessorException instead
@@ -142,7 +142,7 @@ class PaymentServiceIntegrationTest {
 
     @Test
     void captureTwiceIsStateError() {
-        Payment payment = paymentService.authorize(billingAccountId, inr(1_000_00), CARD);
+        Payment payment = paymentService.authorize(newKey(), billingAccountId, inr(1_000_00), CARD);
         paymentService.capture(payment.getId(), null);
 
         assertThatThrownBy(() -> paymentService.capture(payment.getId(), null))
@@ -152,7 +152,7 @@ class PaymentServiceIntegrationTest {
 
     @Test
     void voidOfDeclinedPaymentIsStateError() {
-        Payment payment = paymentService.authorize(billingAccountId, inr(1_000_00), FakePaymentProcessor.DECLINED_TOKEN);
+        Payment payment = paymentService.authorize(newKey(), billingAccountId, inr(1_000_00), FakePaymentProcessor.DECLINED_TOKEN);
 
         assertThatThrownBy(() -> paymentService.voidAuthorization(payment.getId()))
                 .isInstanceOf(IllegalPaymentStateException.class);
@@ -160,13 +160,13 @@ class PaymentServiceIntegrationTest {
 
     @Test
     void unknownBillingAccountIsRejected() {
-        assertThatThrownBy(() -> paymentService.authorize(UUID.randomUUID(), inr(100), CARD))
+        assertThatThrownBy(() -> paymentService.authorize(newKey(), UUID.randomUUID(), inr(100), CARD))
                 .isInstanceOf(UnknownBillingAccountException.class);
     }
 
     @Test
     void paymentInOtherCurrencyThanAccountIsRejected() {
-        assertThatThrownBy(() -> paymentService.authorize(billingAccountId, Money.ofMinor(100, "USD"), CARD))
+        assertThatThrownBy(() -> paymentService.authorize(newKey(), billingAccountId, Money.ofMinor(100, "USD"), CARD))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("is in INR");
     }
@@ -179,7 +179,7 @@ class PaymentServiceIntegrationTest {
 
     @Test
     void wholeLedgerStillBalancesPerCurrency() {
-        Payment payment = paymentService.authorize(billingAccountId, inr(2_345_67), CARD);
+        Payment payment = paymentService.authorize(newKey(), billingAccountId, inr(2_345_67), CARD);
         paymentService.capture(payment.getId(), inr(1_234_56));
 
         // trial balance: across ALL accounts, debits - credits = 0 in every currency
@@ -197,6 +197,11 @@ class PaymentServiceIntegrationTest {
 
     private int linesOn(LedgerAccount account) {
         return jdbc.queryForObject("SELECT count(*) FROM entry_line WHERE ledger_account_id = ?", Integer.class, account.getId());
+    }
+
+    /** Each call is a new client request, so a new Idempotency-Key. */
+    private static String newKey() {
+        return UUID.randomUUID().toString();
     }
 
     private static Money inr(long paise) {

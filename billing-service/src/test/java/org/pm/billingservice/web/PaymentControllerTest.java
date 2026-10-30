@@ -15,6 +15,8 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import java.util.List;
 import java.util.UUID;
 
@@ -25,7 +27,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -36,6 +37,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class PaymentControllerTest {
 
     private static final UUID ACCOUNT_ID = UUID.randomUUID();
+    private static final String KEY = "test-key-" + UUID.randomUUID();
 
     @Autowired
     private MockMvc mvc;
@@ -46,7 +48,7 @@ class PaymentControllerTest {
     @Test
     void authorizeReturns201WithLocationAndDecimalAmounts() throws Exception {
         Payment payment = authorizedPayment(1_000_50);
-        when(paymentService.authorize(ACCOUNT_ID, inr(1_000_50), "pm_card_visa")).thenReturn(payment);
+        when(paymentService.authorize(KEY, ACCOUNT_ID, inr(1_000_50), "pm_card_visa")).thenReturn(payment);
 
         mvc.perform(post("/payments").contentType(MediaType.APPLICATION_JSON).content("""
                         {"billingAccountId":"%s","amount":"1000.50","currency":"INR","paymentMethodToken":"pm_card_visa"}
@@ -63,7 +65,7 @@ class PaymentControllerTest {
     void declinedCardIsStill201WithFailedStatus() throws Exception {
         Payment payment = Payment.create(ACCOUNT_ID, inr(500_00));
         payment.fail("card_declined");
-        when(paymentService.authorize(any(), any(), any())).thenReturn(payment);
+        when(paymentService.authorize(any(), any(), any(), any())).thenReturn(payment);
 
         mvc.perform(post("/payments").contentType(MediaType.APPLICATION_JSON).content(createBody("500.00")))
                 .andExpect(status().isCreated())
@@ -77,7 +79,7 @@ class PaymentControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentType("application/problem+json"));
 
-        verify(paymentService, never()).authorize(any(), any(), any());
+        verify(paymentService, never()).authorize(any(), any(), any(), any());
     }
 
     @Test
@@ -98,7 +100,7 @@ class PaymentControllerTest {
 
     @Test
     void unknownBillingAccountIs422() throws Exception {
-        when(paymentService.authorize(any(), any(), any())).thenThrow(new UnknownBillingAccountException(ACCOUNT_ID));
+        when(paymentService.authorize(any(), any(), any(), any())).thenThrow(new UnknownBillingAccountException(ACCOUNT_ID));
 
         mvc.perform(post("/payments").contentType(MediaType.APPLICATION_JSON).content(createBody("10.00")))
                 .andExpect(status().isUnprocessableEntity());
@@ -164,7 +166,7 @@ class PaymentControllerTest {
     void refundReturns201WithLocation() throws Exception {
         UUID paymentId = UUID.randomUUID();
         Refund refund = new Refund(paymentId, inr(300_00), "re_test", "item returned");
-        when(paymentService.refund(paymentId, inr(300_00), "item returned")).thenReturn(refund);
+        when(paymentService.refund(KEY, paymentId, inr(300_00), "item returned")).thenReturn(refund);
 
         mvc.perform(post("/payments/{id}/refunds", paymentId).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"amount\":\"300.00\",\"currency\":\"INR\",\"reason\":\"item returned\"}"))
@@ -177,7 +179,7 @@ class PaymentControllerTest {
     @Test
     void refundWithoutBodyRefundsEverythingLeft() throws Exception {
         UUID paymentId = UUID.randomUUID();
-        when(paymentService.refund(eq(paymentId), isNull(), isNull()))
+        when(paymentService.refund(eq(KEY), eq(paymentId), isNull(), isNull()))
                 .thenReturn(new Refund(paymentId, inr(1_000_00), "re_test", null));
 
         mvc.perform(post("/payments/{id}/refunds", paymentId))
@@ -191,13 +193,13 @@ class PaymentControllerTest {
                         .content("{\"amount\":\"10.00\"}"))
                 .andExpect(status().isBadRequest());
 
-        verify(paymentService, never()).refund(any(), any(), any());
+        verify(paymentService, never()).refund(any(), any(), any(), any());
     }
 
     @Test
     void refundOfUncapturedPaymentIs409() throws Exception {
         UUID id = UUID.randomUUID();
-        when(paymentService.refund(eq(id), any(), any()))
+        when(paymentService.refund(any(), eq(id), any(), any()))
                 .thenThrow(new IllegalPaymentStateException(id, PaymentStatus.AUTHORIZED, PaymentStatus.REFUNDED));
 
         mvc.perform(post("/payments/{id}/refunds", id))
@@ -240,6 +242,11 @@ class PaymentControllerTest {
         mvc.perform(post("/payments/{id}/void", id))
                 .andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.detail").value("the payment processor refused the request"));
+    }
+
+    /** Every POST here moves money, so every POST carries an Idempotency-Key. */
+    private static MockHttpServletRequestBuilder post(String uriTemplate, Object... uriVariables) {
+        return MockMvcRequestBuilders.post(uriTemplate, uriVariables).header("Idempotency-Key", KEY);
     }
 
     private static String createBody(String amount) {

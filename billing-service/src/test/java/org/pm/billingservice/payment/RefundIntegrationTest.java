@@ -62,7 +62,7 @@ class RefundIntegrationTest {
     void fullRefundUndoesTheMoneyButKeepsHistory() {
         Payment payment = captured(1_000_00, 1_000_00);
 
-        Refund refund = paymentService.refund(payment.getId(), null, "duplicate charge");
+        Refund refund = paymentService.refund(newKey(), payment.getId(), null, "duplicate charge");
 
         assertThat(refund.getAmount()).isEqualTo(inr(1_000_00));
         assertThat(paymentService.get(payment.getId()).getStatus()).isEqualTo(PaymentStatus.REFUNDED);
@@ -77,11 +77,11 @@ class RefundIntegrationTest {
     void severalPartialRefundsThenTheRest() {
         Payment payment = captured(1_000_00, 1_000_00);
 
-        paymentService.refund(payment.getId(), inr(300_00), "one item returned");
-        paymentService.refund(payment.getId(), inr(200_00), "second item returned");
+        paymentService.refund(newKey(), payment.getId(), inr(300_00), "one item returned");
+        paymentService.refund(newKey(), payment.getId(), inr(200_00), "second item returned");
         assertThat(paymentService.get(payment.getId()).getStatus()).isEqualTo(PaymentStatus.PARTIALLY_REFUNDED);
 
-        Refund rest = paymentService.refund(payment.getId(), null, "cancelled"); // no amount = what's left
+        Refund rest = paymentService.refund(newKey(), payment.getId(), null, "cancelled"); // no amount = what's left
 
         assertThat(rest.getAmount()).isEqualTo(inr(500_00));
         assertThat(paymentService.get(payment.getId()).getStatus()).isEqualTo(PaymentStatus.REFUNDED);
@@ -93,9 +93,9 @@ class RefundIntegrationTest {
     @Test
     void overRefundIsRejectedBeforeCallingProcessor() {
         Payment payment = captured(1_000_00, 1_000_00);
-        paymentService.refund(payment.getId(), inr(700_00), null);
+        paymentService.refund(newKey(), payment.getId(), inr(700_00), null);
 
-        assertThatThrownBy(() -> paymentService.refund(payment.getId(), inr(300_01), null))
+        assertThatThrownBy(() -> paymentService.refund(newKey(), payment.getId(), inr(300_01), null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("only INR 300.00 is left");
 
@@ -107,28 +107,28 @@ class RefundIntegrationTest {
     void refundIsCappedByCapturedNotAuthorized() {
         Payment payment = captured(1_000_00, 600_00); // partial capture
 
-        assertThatThrownBy(() -> paymentService.refund(payment.getId(), inr(600_01), null))
+        assertThatThrownBy(() -> paymentService.refund(newKey(), payment.getId(), inr(600_01), null))
                 .isInstanceOf(IllegalArgumentException.class);
 
-        Refund all = paymentService.refund(payment.getId(), null, null);
+        Refund all = paymentService.refund(newKey(), payment.getId(), null, null);
         assertThat(all.getAmount()).isEqualTo(inr(600_00));
     }
 
     @Test
     void refundBeforeCaptureIsStateError() {
-        Payment payment = paymentService.authorize(billingAccountId, inr(1_000_00), "pm_card_visa");
+        Payment payment = paymentService.authorize(newKey(), billingAccountId, inr(1_000_00), "pm_card_visa");
 
-        assertThatThrownBy(() -> paymentService.refund(payment.getId(), inr(100_00), null))
+        assertThatThrownBy(() -> paymentService.refund(newKey(), payment.getId(), inr(100_00), null))
                 .isInstanceOf(IllegalPaymentStateException.class);
     }
 
     @Test
     void refundAfterFullRefundIsStateError() {
         Payment payment = captured(1_000_00, 1_000_00);
-        paymentService.refund(payment.getId(), null, null);
+        paymentService.refund(newKey(), payment.getId(), null, null);
 
         // no amount means "the rest", which is 0 - must still be a 409, not "amount must be positive"
-        assertThatThrownBy(() -> paymentService.refund(payment.getId(), null, null))
+        assertThatThrownBy(() -> paymentService.refund(newKey(), payment.getId(), null, null))
                 .isInstanceOf(IllegalPaymentStateException.class);
     }
 
@@ -152,7 +152,7 @@ class RefundIntegrationTest {
             for (int i = 0; i < threads; i++) {
                 results.add(pool.submit(() -> {
                     start.await();
-                    return paymentService.refund(payment.getId(), inr(100_00), "concurrent");
+                    return paymentService.refund(newKey(), payment.getId(), inr(100_00), "concurrent");
                 }));
             }
             start.countDown();
@@ -172,8 +172,13 @@ class RefundIntegrationTest {
     }
 
     private Payment captured(long authorizedPaise, long capturedPaise) {
-        Payment payment = paymentService.authorize(billingAccountId, inr(authorizedPaise), "pm_card_visa");
+        Payment payment = paymentService.authorize(newKey(), billingAccountId, inr(authorizedPaise), "pm_card_visa");
         return paymentService.capture(payment.getId(), inr(capturedPaise));
+    }
+
+    /** Each call is a new client request, so a new Idempotency-Key. */
+    private static String newKey() {
+        return UUID.randomUUID().toString();
     }
 
     private static Money inr(long paise) {

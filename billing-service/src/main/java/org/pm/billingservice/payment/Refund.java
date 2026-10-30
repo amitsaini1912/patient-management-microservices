@@ -39,7 +39,12 @@ public class Refund {
     protected Refund() {}   // JPA needs a no-arg constructor
 
     public Refund(UUID paymentId, Money amount, String processorReference, String reason) {
-        this.id = UUID.randomUUID();
+        this(UUID.randomUUID(), paymentId, amount, processorReference, reason);
+    }
+
+    /** With a chosen id: PaymentService derives it from the Idempotency-Key, so a retry finds the same row. */
+    public Refund(UUID id, UUID paymentId, Money amount, String processorReference, String reason) {
+        this.id = id;
         this.paymentId = paymentId;
         this.amountMinor = amount.amountMinor();
         this.currency = amount.currency();

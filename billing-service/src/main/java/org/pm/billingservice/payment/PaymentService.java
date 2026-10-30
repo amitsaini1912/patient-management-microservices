@@ -1,6 +1,8 @@
 package org.pm.billingservice.payment;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
 import org.pm.billingservice.ledger.AccountPurpose;
@@ -24,8 +26,11 @@ import org.springframework.transaction.support.TransactionTemplate;
  *   2. call the processor, with NO transaction open (it may take seconds)
  *   3. short DB transaction: apply the result; @Version catches anyone who changed the payment meanwhile
  *
- * Known gap until Day 5 (idempotency) and Day 8 (reconciliation): if the processor call in step 2
- * succeeds and step 3 fails (crash, version conflict), the processor and our DB disagree.
+ * If step 2 succeeds and step 3 fails (crash, DB down), the processor and our DB disagree until the
+ * client retries with the same Idempotency-Key. Every step is safe to run again (ADR 0007):
+ *   - authorize / refund: the new row's id is derived from the client's key, so a retry finds it
+ *   - every processor call carries a key derived from what it does, so the processor does it once
+ * A client that never retries leaves the gap to reconciliation (Day 8).
  */
 @Service
 public class PaymentService {
@@ -60,9 +65,15 @@ public class PaymentService {
      * Creates the payment and asks the processor to hold the money.
      * A decline is a normal outcome: the payment is returned as FAILED. No money moved, so no ledger entry.
      */
-    public Payment authorize(UUID billingAccountId, Money amount, String paymentMethodToken) {
+    public Payment authorize(String idempotencyKey, UUID billingAccountId, Money amount, String paymentMethodToken) {
+        UUID paymentId = paymentIdFor(idempotencyKey);
+        Optional<Payment> earlier = transactionTemplate.execute(tx -> paymentRepository.findById(paymentId));
+        if (earlier.isPresent() && earlier.get().getStatus() != PaymentStatus.CREATED) {
+            return earlier.get(); // a previous attempt finished; only its response was lost
+        }
+
         // Saved as CREATED before calling the processor, so a crash mid-call still leaves a trace to reconcile.
-        Payment created = transactionTemplate.execute(tx -> {
+        Payment created = earlier.isPresent() ? earlier.get() : transactionTemplate.execute(tx -> {
             BillingAccount account = billingAccountRepository.findById(billingAccountId)
                     .orElseThrow(() -> new UnknownBillingAccountException(billingAccountId));
             if (!account.getCurrency().equals(amount.currency())) {
@@ -70,10 +81,10 @@ public class PaymentService {
                 throw new IllegalArgumentException("billing account " + billingAccountId + " is in "
                         + account.getCurrency() + ", payment is in " + amount.currency());
             }
-            return paymentRepository.save(Payment.create(billingAccountId, amount));
+            return paymentRepository.save(Payment.create(paymentId, billingAccountId, amount));
         });
 
-        AuthorizationResult result = paymentProcessor.authorize(created.getId(), amount, paymentMethodToken);
+        AuthorizationResult result = paymentProcessor.authorize("authorize:" + paymentId, paymentId, amount, paymentMethodToken);
 
         return transactionTemplate.execute(tx -> {
             Payment payment = load(created.getId());
@@ -95,7 +106,9 @@ public class PaymentService {
         Money captureAmount = amount != null ? amount : current.getAmount();
         current.checkCapture(captureAmount); // 409/400 here, before the card is touched
 
-        paymentProcessor.capture(current.getProcessorReference(), captureAmount);
+        // One capture per payment, so the payment + amount is the key: a retry, or a second request racing
+        // this one, gets the processor's first answer instead of a refusal, then gets 409 from the state check / @Version.
+        paymentProcessor.capture(captureKey(paymentId, captureAmount), current.getProcessorReference(), captureAmount);
 
         return transactionTemplate.execute(tx -> {
             Payment payment = load(paymentId);
@@ -110,7 +123,7 @@ public class PaymentService {
         Payment current = transactionTemplate.execute(tx -> load(paymentId));
         current.checkVoid();
 
-        paymentProcessor.voidAuthorization(current.getProcessorReference());
+        paymentProcessor.voidAuthorization(voidKey(paymentId), current.getProcessorReference());
 
         return transactionTemplate.execute(tx -> {
             Payment payment = load(paymentId);
@@ -123,12 +136,19 @@ public class PaymentService {
      * Sends {@code amount} (or everything still refundable when null) back to the card,
      * records the refund and posts it to the ledger in one transaction.
      */
-    public Refund refund(UUID paymentId, Money amount, String reason) {
+    public Refund refund(String idempotencyKey, UUID paymentId, Money amount, String reason) {
+        // One payment can have many refunds, so unlike capture the key has to come from the client.
+        UUID refundId = refundIdFor(idempotencyKey);
+        Optional<Refund> earlier = transactionTemplate.execute(tx -> refundRepository.findById(refundId));
+        if (earlier.isPresent()) {
+            return earlier.get(); // a previous attempt finished; only its response was lost
+        }
+
         Payment current = transactionTemplate.execute(tx -> load(paymentId));
         Money refundAmount = amount != null ? amount : current.getRefundableAmount();
         current.checkRefund(refundAmount); // 409/400 here, before any money goes back
 
-        String processorRefundReference = paymentProcessor.refund(current.getProcessorReference(), refundAmount);
+        String processorRefundReference = paymentProcessor.refund("refund:" + refundId, current.getProcessorReference(), refundAmount);
 
         // The money HAS gone back. If a concurrent refund on the same payment committed first, our
         // @Version check fails; re-reading and applying again is correct, because refunds add up and
@@ -136,7 +156,7 @@ public class PaymentService {
         return retryOnVersionConflict(() -> transactionTemplate.execute(tx -> {
             Payment payment = load(paymentId);
             payment.refund(refundAmount);
-            Refund refund = refundRepository.save(new Refund(paymentId, refundAmount, processorRefundReference, reason));
+            Refund refund = refundRepository.save(new Refund(refundId, paymentId, refundAmount, processorRefundReference, reason));
             postRefund(payment, refundAmount);
             return refund;
         }));
@@ -187,6 +207,31 @@ public class PaymentService {
                 .credit(patientReceivable, amount)
                 .debit(patientReceivable, amount)
                 .credit(processorReceivable, amount));
+    }
+
+    /** Shared with the expiry job: our void and the job's void of the same hold are one processor call. */
+    static String voidKey(UUID paymentId) {
+        return "void:" + paymentId;
+    }
+
+    private static String captureKey(UUID paymentId, Money amount) {
+        return "capture:" + paymentId + ":" + amount.amountMinor() + ":" + amount.currency();
+    }
+
+    static UUID paymentIdFor(String idempotencyKey) {
+        return idFromKey("payment", idempotencyKey);
+    }
+
+    static UUID refundIdFor(String idempotencyKey) {
+        return idFromKey("refund", idempotencyKey);
+    }
+
+    /** Same key -> same id (name-based UUID v3), so a retried request finds the row the first attempt wrote. */
+    private static UUID idFromKey(String kind, String idempotencyKey) {
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            throw new IllegalArgumentException("idempotency key is required");
+        }
+        return UUID.nameUUIDFromBytes((kind + ":" + idempotencyKey).getBytes(StandardCharsets.UTF_8));
     }
 
     private static <T> T retryOnVersionConflict(Supplier<T> action) {

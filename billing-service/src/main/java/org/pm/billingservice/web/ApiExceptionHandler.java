@@ -1,5 +1,7 @@
 package org.pm.billingservice.web;
 
+import jakarta.servlet.http.HttpServletRequest;
+import org.pm.billingservice.idempotency.IdempotencyFilter;
 import org.pm.billingservice.money.CurrencyMismatchException;
 import org.pm.billingservice.payment.IllegalPaymentStateException;
 import org.pm.billingservice.payment.PaymentNotFoundException;
@@ -34,9 +36,13 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return problem;
     }
 
-    /** Someone else changed the same payment between our read and our write. Safe for the client to re-read and retry. */
+    /**
+     * Someone else changed the same payment between our read and our write. Safe for the client to re-read and retry.
+     * Marked retryable: the idempotency filter must not store this 409 and replay it to every retry of the key.
+     */
     @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
-    ProblemDetail concurrentModification(ObjectOptimisticLockingFailureException e) {
+    ProblemDetail concurrentModification(ObjectOptimisticLockingFailureException e, HttpServletRequest request) {
+        request.setAttribute(IdempotencyFilter.RETRYABLE_ATTRIBUTE, Boolean.TRUE);
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,
                 "the resource was changed by another request; re-read it and retry");
         problem.setTitle("Concurrent modification");

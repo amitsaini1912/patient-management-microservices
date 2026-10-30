@@ -72,7 +72,7 @@ class AuthorizationExpiryJobIntegrationTest {
         paymentService.capture(captured.getId(), null);
         Payment voided = authorized();
         paymentService.voidAuthorization(voided.getId());
-        Payment failed = paymentService.authorize(billingAccountId, inr(1_000_00), FakePaymentProcessor.DECLINED_TOKEN);
+        Payment failed = paymentService.authorize(newKey(), billingAccountId, inr(1_000_00), FakePaymentProcessor.DECLINED_TOKEN);
 
         List<UUID> expired = jobAt(daysFromNow(30)).expireDueAuthorizations();
 
@@ -142,7 +142,7 @@ class AuthorizationExpiryJobIntegrationTest {
     }
 
     private Payment authorized() {
-        return paymentService.authorize(billingAccountId, inr(1_000_00), "pm_card_visa");
+        return paymentService.authorize(newKey(), billingAccountId, inr(1_000_00), "pm_card_visa");
     }
 
     private PaymentStatus statusOf(Payment payment) {
@@ -159,6 +159,11 @@ class AuthorizationExpiryJobIntegrationTest {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    /** Each call is a new client request, so a new Idempotency-Key. */
+    private static String newKey() {
+        return UUID.randomUUID().toString();
     }
 
     private static Money inr(long paise) {

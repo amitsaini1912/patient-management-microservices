@@ -72,13 +72,14 @@ public class Payment {
 
     protected Payment() {}   // JPA needs a no-arg constructor
 
-    private Payment(UUID billingAccountId, Money amount) {
+    private Payment(UUID id, UUID billingAccountId, Money amount) {
+        Objects.requireNonNull(id, "id is required");
         Objects.requireNonNull(billingAccountId, "billingAccountId is required");
         Objects.requireNonNull(amount, "amount is required");
         if (!amount.isPositive()) {
             throw new IllegalArgumentException("payment amount must be positive, was " + amount);
         }
-        this.id = UUID.randomUUID();
+        this.id = id;
         this.billingAccountId = billingAccountId;
         this.amountMinor = amount.amountMinor();
         this.currency = amount.currency();
@@ -88,7 +89,12 @@ public class Payment {
     }
 
     public static Payment create(UUID billingAccountId, Money amount) {
-        return new Payment(billingAccountId, amount);
+        return create(UUID.randomUUID(), billingAccountId, amount);
+    }
+
+    /** With a chosen id: PaymentService derives it from the Idempotency-Key, so a retry finds the same row. */
+    public static Payment create(UUID id, UUID billingAccountId, Money amount) {
+        return new Payment(id, billingAccountId, amount);
     }
 
     public void holdForReview() {

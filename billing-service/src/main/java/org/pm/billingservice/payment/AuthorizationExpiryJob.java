@@ -82,7 +82,7 @@ public class AuthorizationExpiryJob {
      */
     private void releaseHold(Payment payment) {
         try {
-            paymentProcessor.voidAuthorization(payment.getProcessorReference());
+            paymentProcessor.voidAuthorization(PaymentService.voidKey(payment.getId()), payment.getProcessorReference());
         } catch (RuntimeException e) {
             log.warn("could not release hold for expired payment {}: {}", payment.getId(), e.getMessage());
         }

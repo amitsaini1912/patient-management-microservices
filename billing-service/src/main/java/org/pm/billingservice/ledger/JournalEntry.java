@@ -3,6 +3,8 @@ package org.pm.billingservice.ledger;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OrderBy;
@@ -49,6 +51,14 @@ public class JournalEntry implements Persistable<UUID> {
     @Column(name = "posted_at", nullable = false)
     private Instant postedAt;
 
+    // what this entry records (null for manual entries and reversals); reconciliation matches on it
+    @Enumerated(EnumType.STRING)
+    @Column(name = "source_type")
+    private EntrySource sourceType;
+
+    @Column(name = "source_id")
+    private UUID sourceId;
+
     @OneToMany(mappedBy = "journalEntry", cascade = CascadeType.PERSIST)
     @OrderBy("lineNo")
     private List<EntryLine> lines = new ArrayList<>();
@@ -84,6 +94,16 @@ public class JournalEntry implements Persistable<UUID> {
             reversal.addLine(line.getAccount(), line.getDirection().opposite(), line.getAmount());
         }
         return reversal;
+    }
+
+    /** Tags the draft with the payment/refund it records. The DB allows one entry per source. */
+    public JournalEntry source(EntrySource type, UUID id) {
+        if (isPosted()) {
+            throw new IllegalStateException("entry " + this.id + " is already posted");
+        }
+        this.sourceType = Objects.requireNonNull(type, "source type is required");
+        this.sourceId = Objects.requireNonNull(id, "source id is required");
+        return this;
     }
 
     public JournalEntry debit(LedgerAccount account, Money amount) {
@@ -158,5 +178,7 @@ public class JournalEntry implements Persistable<UUID> {
     public String getDescription() { return description; }
     public UUID getReversalOf() { return reversalOf; }
     public Instant getPostedAt() { return postedAt; }
+    public EntrySource getSourceType() { return sourceType; }
+    public UUID getSourceId() { return sourceId; }
     public List<EntryLine> getLines() { return Collections.unmodifiableList(lines); }
 }

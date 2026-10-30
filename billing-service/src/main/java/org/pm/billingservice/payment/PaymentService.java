@@ -6,6 +6,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
 import org.pm.billingservice.ledger.AccountPurpose;
+import org.pm.billingservice.ledger.EntrySource;
 import org.pm.billingservice.ledger.JournalEntry;
 import org.pm.billingservice.ledger.LedgerAccount;
 import org.pm.billingservice.ledger.LedgerService;
@@ -179,7 +180,7 @@ public class PaymentService {
             Payment payment = load(paymentId);
             payment.refund(refundAmount);
             Refund refund = refundRepository.save(new Refund(refundId, paymentId, refundAmount, processorRefundReference, reason));
-            postRefund(payment, refundAmount);
+            postRefund(payment, refund);
             paymentEvents.refunded(payment, refund); // a retried attempt rolls back its event too: still one event
             return refund;
         }));
@@ -203,11 +204,13 @@ public class PaymentService {
      * Net: patient owes 0, the acquirer owes us the money until settlement, revenue is earned.
      */
     private void postCapture(Payment payment, Money amount) {
+        claim(payment);
         LedgerAccount patientReceivable = ledgerService.patientReceivable(payment.getBillingAccountId());
         LedgerAccount revenue = ledgerService.systemAccount(AccountPurpose.HOSPITAL_REVENUE, amount.currency());
         LedgerAccount processorReceivable = ledgerService.systemAccount(AccountPurpose.PROCESSOR_RECEIVABLE, amount.currency());
 
         ledgerService.post(JournalEntry.draft("capture payment " + payment.getId())
+                .source(EntrySource.CAPTURE, payment.getId())
                 .debit(patientReceivable, amount)
                 .credit(revenue, amount)
                 .debit(processorReceivable, amount)
@@ -220,12 +223,15 @@ public class PaymentService {
      *   the money goes back to their card:        DR patient receivable     / CR processor receivable
      * Net: patient owes 0, the acquirer owes us less, refunds are visible next to revenue.
      */
-    private void postRefund(Payment payment, Money amount) {
+    private void postRefund(Payment payment, Refund refund) {
+        claim(payment);
+        Money amount = refund.getAmount();
         LedgerAccount patientReceivable = ledgerService.patientReceivable(payment.getBillingAccountId());
         LedgerAccount refunds = ledgerService.systemAccount(AccountPurpose.REFUNDS, amount.currency());
         LedgerAccount processorReceivable = ledgerService.systemAccount(AccountPurpose.PROCESSOR_RECEIVABLE, amount.currency());
 
         ledgerService.post(JournalEntry.draft("refund payment " + payment.getId())
+                .source(EntrySource.REFUND, refund.getId())
                 .debit(refunds, amount)
                 .credit(patientReceivable, amount)
                 .debit(patientReceivable, amount)
@@ -302,6 +308,15 @@ public class PaymentService {
         log.info("webhook {} ({}) moved payment {} from {} to {}", event.eventId(), event.type(), payment.getId(),
                 status, payment.getStatus());
         return GatewayEventOutcome.APPLIED;
+    }
+
+    /**
+     * Write the payment's status change NOW (UPDATE ... WHERE version = ?), before the ledger entry. Hibernate would
+     * otherwise flush the journal_entry INSERT first, and a concurrent request that lost the race would hit the
+     * ledger's one-posting-per-capture unique index (500) instead of the @Version conflict we retry on.
+     */
+    private void claim(Payment payment) {
+        paymentRepository.saveAndFlush(payment);
     }
 
     private static boolean sameOutcome(Payment payment, AuthorizationResult result) {

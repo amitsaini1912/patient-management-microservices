@@ -208,6 +208,50 @@ class SimulatorIntegrationTest {
                 .andExpect(status().isNotFound());
     }
 
+    // ---- settlement report (Day 8) ----
+
+    @Test
+    void settlementReportListsTodaysCapturesAndRefundsByUtcDay() throws Exception {
+        String reference = UUID.randomUUID().toString();
+        String auth = authorizationId(authorize(newKey(), reference, 1_000_00, "pm_card_visa"));
+        call("/v1/authorizations/" + auth + "/capture", "{\"amount_minor\":100000,\"currency\":\"INR\"}");
+        String refundId = objectMapper.readTree(call("/v1/authorizations/" + auth + "/refunds",
+                "{\"amount_minor\":30000,\"currency\":\"INR\"}").andReturn().getResponse().getContentAsString()).get("id").asText();
+        java.time.LocalDate today = java.time.LocalDate.now(java.time.ZoneOffset.UTC);
+
+        JsonNode report = settlementReport(today);
+        List<JsonNode> mine = rowsFor(report, reference);
+        assertThat(mine).extracting(r -> r.get("type").asText()).containsExactly("CAPTURE", "REFUND");
+        assertThat(mine.get(0).get("id").asText()).startsWith("cap_");
+        assertThat(mine.get(0).get("amount_minor").asLong()).isEqualTo(1_000_00);
+        assertThat(mine.get(1).get("id").asText()).isEqualTo(refundId); // the id the merchant got back
+        assertThat(mine.get(1).get("authorization_id").asText()).isEqualTo(auth);
+        assertThat(rowsFor(settlementReport(today.minusDays(1)), reference)).isEmpty(); // UTC day cut-off
+
+        // test knob: the acquirer's books now say 999.00 for that capture
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch(
+                                "/admin/settlements/" + mine.get(0).get("id").asText())
+                        .header("Authorization", API_KEY).contentType(MediaType.APPLICATION_JSON).content("{\"amount_minor\":99900}"))
+                .andExpect(status().isOk());
+        assertThat(rowsFor(settlementReport(today), reference).get(0).get("amount_minor").asLong()).isEqualTo(99900);
+        mvc.perform(get("/v1/settlements/" + today)).andExpect(status().isUnauthorized());
+    }
+
+    private JsonNode settlementReport(java.time.LocalDate date) throws Exception {
+        return objectMapper.readTree(mvc.perform(get("/v1/settlements/" + date).header("Authorization", API_KEY))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+    }
+
+    private static List<JsonNode> rowsFor(JsonNode report, String reference) {
+        List<JsonNode> rows = new java.util.ArrayList<>();
+        report.get("rows").forEach(r -> {
+            if (reference.equals(r.get("merchant_reference").asText())) {
+                rows.add(r);
+            }
+        });
+        return rows;
+    }
+
     // ---- webhook delivery ----
 
     @Test

@@ -16,3 +16,4 @@ a new ADR supersedes an old one.
 | [0008](0008-transactional-outbox.md) | Payment events via a transactional outbox; protobuf payload; one ordered relay | Accepted |
 | [0009](0009-idempotent-consumer-and-dlt.md) | analytic-service: idempotent payment-event consumer + dead-letter topics | Accepted |
 | [0010](0010-acquirer-simulator-and-signed-webhooks.md) | payment-network-simulator as our acquirer; signed, deduplicated, forward-only webhooks | Accepted |
+| [0011](0011-daily-reconciliation.md) | Daily reconciliation of the ledger against the acquirer's settlement report | Accepted |

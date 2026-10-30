@@ -8,6 +8,8 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 import org.pm.simulator.acquirer.AuthorizationState.Status;
+import org.pm.simulator.settlement.SettlementBook;
+import org.pm.simulator.settlement.SettlementRecord;
 import org.pm.simulator.webhook.WebhookDispatcher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -30,10 +32,12 @@ public class AcquirerService {
     private final Map<String, AuthorizationState> authorizations = new ConcurrentHashMap<>();
     private final Map<String, Completed> completed = new ConcurrentHashMap<>();
     private final WebhookDispatcher webhooks;
+    private final SettlementBook settlements;
     private final Clock clock = Clock.systemUTC();
 
-    public AcquirerService(WebhookDispatcher webhooks) {
+    public AcquirerService(WebhookDispatcher webhooks, SettlementBook settlements) {
         this.webhooks = webhooks;
+        this.settlements = settlements;
     }
 
     public AuthorizationState authorize(String key, String merchantReference, long amountMinor, String currency,
@@ -64,6 +68,8 @@ public class AcquirerService {
                 }
                 return auth.with(Status.CAPTURED, amountMinor, 0);
             });
+            settlements.record("cap_" + UUID.randomUUID(), SettlementRecord.Type.CAPTURE, captured.id(),
+                    captured.merchantReference(), amountMinor, captured.currency());
             publish("payment.captured", captured, Map.of());
             return captured;
         });
@@ -95,6 +101,8 @@ public class AcquirerService {
                 return auth.with(Status.CAPTURED, auth.capturedMinor(), auth.refundedMinor() + amountMinor);
             });
             RefundResult result = new RefundResult("re_" + UUID.randomUUID(), refunded);
+            settlements.record(result.id(), SettlementRecord.Type.REFUND, refunded.id(), refunded.merchantReference(),
+                    amountMinor, refunded.currency());
             Map<String, Object> details = new LinkedHashMap<>();
             details.put("refund_id", result.id());
             details.put("refund_amount_minor", amountMinor);

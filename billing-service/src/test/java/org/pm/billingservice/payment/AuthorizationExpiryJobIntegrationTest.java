@@ -43,6 +43,7 @@ class AuthorizationExpiryJobIntegrationTest {
     @Autowired private PaymentRepository paymentRepository;
     @Autowired private BillingAccountService billingAccountService;
     @Autowired private FakePaymentProcessor processor;
+    @Autowired private PaymentEvents paymentEvents;
     @Autowired private TransactionTemplate transactionTemplate;
     @Autowired private JdbcTemplate jdbc;
 
@@ -137,7 +138,7 @@ class AuthorizationExpiryJobIntegrationTest {
     }
 
     private AuthorizationExpiryJob jobAt(Instant now) {
-        return new AuthorizationExpiryJob(paymentRepository, processor, transactionTemplate,
+        return new AuthorizationExpiryJob(paymentRepository, processor, paymentEvents, transactionTemplate,
                 Clock.fixed(now, ZoneOffset.UTC), new PaymentProperties(TTL, 100));
     }
 

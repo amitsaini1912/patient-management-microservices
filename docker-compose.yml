@@ -1,6 +1,6 @@
 # Local development stack. Grows one service at a time (see each day's notes).
 #   cp .env.example .env      # then set real passwords
-#   docker compose up -d billing-db
+#   docker compose up -d billing-db kafka
 services:
   billing-db:
     image: postgres:16
@@ -15,6 +15,30 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${BILLING_DB_USER:-billing} -d billing"]
       interval: 5s
+      retries: 10
+
+  # Single-node Kafka in KRaft mode (no ZooKeeper). Same 3.9 line as k8s/kafka.yaml.
+  #   from your machine:      localhost:9092
+  #   from other containers:  kafka:19092
+  kafka:
+    image: apache/kafka:3.9.1
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: HOST://0.0.0.0:9092,DOCKER://0.0.0.0:19092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: HOST://localhost:9092,DOCKER://kafka:19092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: HOST:PLAINTEXT,DOCKER:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: DOCKER
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 10s
       retries: 10
 
 volumes:

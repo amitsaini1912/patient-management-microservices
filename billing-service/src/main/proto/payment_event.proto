@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+// Payment events published by billing-service on topic "payment.events", record key = payment_id
+// (so all events of one payment land on one partition, in order). See ADR 0008.
+//
+// Evolving this schema: only add fields with new numbers; never reuse or renumber a field, never change a type.
+// Old consumers ignore unknown fields. A change that can't be done that way bumps schema_version.
+package payment.events;
+
+import "google/protobuf/timestamp.proto";
+
+option java_multiple_files = true;
+
+message PaymentEvent {
+  // UUID, unique per event (= outbox_event.id). The relay may send an event more than once; consumers dedup on this.
+  string event_id = 1;
+  // payment.authorized | payment.failed | payment.captured | payment.voided | payment.expired | payment.refunded
+  string event_type = 2;
+  int32 schema_version = 3;
+  google.protobuf.Timestamp occurred_at = 4;
+  string payment_id = 5;
+  // the authorized amount, in minor units (paise) of currency
+  int64 amount_minor = 6;
+  string currency = 7;
+  // the payment's status after this event, e.g. CAPTURED
+  string status = 8;
+  string billing_account_id = 9;
+  int64 captured_amount_minor = 10;
+  int64 refunded_amount_minor = 11;
+  // payment.failed only
+  string failure_reason = 12;
+  // payment.refunded only: the refund this event is about
+  string refund_id = 13;
+  int64 refund_amount_minor = 14;
+}

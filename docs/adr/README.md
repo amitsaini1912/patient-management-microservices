@@ -13,3 +13,4 @@ a new ADR supersedes an old one.
 | [0005](0005-payment-api-processor-calls-and-postings.md) | Payment API: processor calls outside DB transactions; ledger posts only when money moves | Accepted |
 | [0006](0006-refunds-and-authorization-expiry.md) | Refunds as records with mirror postings; authorization expiry via `FOR UPDATE SKIP LOCKED` | Accepted |
 | [0007](0007-idempotency-keys.md) | `Idempotency-Key` on every money-moving POST: Postgres claim row + idempotent payment steps | Accepted |
+| [0008](0008-transactional-outbox.md) | Payment events via a transactional outbox; protobuf payload; one ordered relay | Accepted |

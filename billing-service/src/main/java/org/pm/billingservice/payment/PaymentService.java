@@ -24,7 +24,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * Every operation has the same three steps:
  *   1. short DB transaction: read + check (fail fast, before touching the card)
  *   2. call the processor, with NO transaction open (it may take seconds)
- *   3. short DB transaction: apply the result; @Version catches anyone who changed the payment meanwhile
+ *   3. short DB transaction: apply the result; @Version catches anyone who changed the payment meanwhile.
+ *      The payment event goes into the outbox in this same transaction (ADR 0008): no change without its
+ *      event, no event without its change.
  *
  * If step 2 succeeds and step 3 fails (crash, DB down), the processor and our DB disagree until the
  * client retries with the same Idempotency-Key. Every step is safe to run again (ADR 0007):
@@ -45,6 +47,7 @@ public class PaymentService {
     private final BillingAccountRepository billingAccountRepository;
     private final LedgerService ledgerService;
     private final PaymentProcessor paymentProcessor;
+    private final PaymentEvents paymentEvents;
     private final TransactionTemplate transactionTemplate;
 
     public PaymentService(PaymentRepository paymentRepository,
@@ -52,12 +55,14 @@ public class PaymentService {
                           BillingAccountRepository billingAccountRepository,
                           LedgerService ledgerService,
                           PaymentProcessor paymentProcessor,
+                          PaymentEvents paymentEvents,
                           TransactionTemplate transactionTemplate) {
         this.paymentRepository = paymentRepository;
         this.refundRepository = refundRepository;
         this.billingAccountRepository = billingAccountRepository;
         this.ledgerService = ledgerService;
         this.paymentProcessor = paymentProcessor;
+        this.paymentEvents = paymentEvents;
         this.transactionTemplate = transactionTemplate;
     }
 
@@ -90,8 +95,10 @@ public class PaymentService {
             Payment payment = load(created.getId());
             if (result.approved()) {
                 payment.authorize(result.processorReference());
+                paymentEvents.authorized(payment);
             } else {
                 payment.fail(result.declineReason());
+                paymentEvents.failed(payment);
             }
             return payment;
         });
@@ -114,6 +121,7 @@ public class PaymentService {
             Payment payment = load(paymentId);
             payment.capture(captureAmount);
             postCapture(payment, captureAmount);
+            paymentEvents.captured(payment);
             return payment;
         });
     }
@@ -128,6 +136,7 @@ public class PaymentService {
         return transactionTemplate.execute(tx -> {
             Payment payment = load(paymentId);
             payment.voidAuthorization();
+            paymentEvents.voided(payment);
             return payment;
         });
     }
@@ -158,6 +167,7 @@ public class PaymentService {
             payment.refund(refundAmount);
             Refund refund = refundRepository.save(new Refund(refundId, paymentId, refundAmount, processorRefundReference, reason));
             postRefund(payment, refundAmount);
+            paymentEvents.refunded(payment, refund); // a retried attempt rolls back its event too: still one event
             return refund;
         }));
     }

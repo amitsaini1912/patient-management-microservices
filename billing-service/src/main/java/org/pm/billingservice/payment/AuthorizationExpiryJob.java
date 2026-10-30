@@ -26,17 +26,20 @@ public class AuthorizationExpiryJob {
 
     private final PaymentRepository paymentRepository;
     private final PaymentProcessor paymentProcessor;
+    private final PaymentEvents paymentEvents;
     private final TransactionTemplate transactionTemplate;
     private final Clock clock;
     private final PaymentProperties properties;
 
     public AuthorizationExpiryJob(PaymentRepository paymentRepository,
                                   PaymentProcessor paymentProcessor,
+                                  PaymentEvents paymentEvents,
                                   TransactionTemplate transactionTemplate,
                                   Clock clock,
                                   PaymentProperties properties) {
         this.paymentRepository = paymentRepository;
         this.paymentProcessor = paymentProcessor;
+        this.paymentEvents = paymentEvents;
         this.transactionTemplate = transactionTemplate;
         this.clock = clock;
         this.properties = properties;
@@ -57,7 +60,10 @@ public class AuthorizationExpiryJob {
             // Claim + expire in one short transaction. The row locks end at commit.
             List<Payment> batch = transactionTemplate.execute(tx -> {
                 List<Payment> due = paymentRepository.lockAuthorizedBefore(cutoff, properties.expiryBatchSize());
-                due.forEach(Payment::expire);
+                due.forEach(payment -> {
+                    payment.expire();
+                    paymentEvents.expired(payment); // same transaction as the status change
+                });
                 return due;
             });
 

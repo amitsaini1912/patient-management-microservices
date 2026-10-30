@@ -4,10 +4,14 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.kafka.KafkaContainer;
 
 /**
- * One real Postgres container for Spring tests. @ServiceConnection points the
- * datasource at it automatically. Import it with @Import(TestcontainersConfiguration.class).
+ * One real Postgres and one real Kafka (KRaft) for Spring tests.
+ * Kafka 3.9.1, not k8s' 3.9.0: with 3.9.0 the broker refuses to start under Testcontainers
+ * ("advertised.listeners cannot use the nonroutable meta-address 0.0.0.0"); fixed in 3.9.1.
+ * @ServiceConnection points the datasource / Kafka client at them automatically.
+ * Import it with @Import(TestcontainersConfiguration.class).
  */
 @TestConfiguration(proxyBeanMethods = false)
 public class TestcontainersConfiguration {
@@ -16,5 +20,11 @@ public class TestcontainersConfiguration {
     @ServiceConnection
     PostgreSQLContainer<?> postgresContainer() {
         return new PostgreSQLContainer<>("postgres:16");
+    }
+
+    @Bean
+    @ServiceConnection
+    KafkaContainer kafkaContainer() {
+        return new KafkaContainer("apache/kafka:3.9.1");
     }
 }

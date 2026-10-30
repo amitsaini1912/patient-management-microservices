@@ -64,6 +64,12 @@
             <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
 
+        <!-- Kafka: the outbox relay publishes payment events (version from the Boot BOM) -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+        </dependency>
+
         <!-- Tests: real Postgres via Testcontainers (no H2 - the ledger will use Postgres triggers) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -83,6 +89,11 @@
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>kafka</artifactId>
             <scope>test</scope>
         </dependency>
 

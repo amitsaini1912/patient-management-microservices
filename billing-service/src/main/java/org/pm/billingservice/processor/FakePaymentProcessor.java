@@ -14,10 +14,12 @@ import org.springframework.stereotype.Component;
  * it remembers each authorization, refuses to capture more than was held, and refuses to
  * capture or void twice.
  *
- * Test tokens (same idea as Stripe's test cards):
- *   pm_card_declined           -> declined "card_declined"
- *   pm_card_insufficient_funds -> declined "insufficient_funds"
- *   anything else              -> approved
+ * Test tokens (same idea as Stripe's test cards; same answers as payment-network-simulator's issuer):
+ *   pm_card_declined           -> declined "card_declined",      response code 05
+ *   pm_card_insufficient_funds -> declined "insufficient_funds", 51
+ *   pm_card_expired            -> declined "expired_card",       54
+ *   pm_card_issuer_unavailable -> declined "issuer_unavailable", 91, retryable
+ *   anything else              -> approved, 00
  *
  * Idempotent like a real acquirer: a call repeated with the same idempotency key returns the
  * first call's result and does nothing again. Failed calls are not remembered (they can be retried).
@@ -28,6 +30,8 @@ public class FakePaymentProcessor implements PaymentProcessor {
 
     public static final String DECLINED_TOKEN = "pm_card_declined";
     public static final String INSUFFICIENT_FUNDS_TOKEN = "pm_card_insufficient_funds";
+    public static final String EXPIRED_TOKEN = "pm_card_expired";
+    public static final String ISSUER_UNAVAILABLE_TOKEN = "pm_card_issuer_unavailable";
 
     public enum HoldState { AUTHORIZED, CAPTURED, VOIDED }
 
@@ -47,15 +51,21 @@ public class FakePaymentProcessor implements PaymentProcessor {
 
     private AuthorizationResult doAuthorize(Money amount, String paymentMethodToken) {
         if (DECLINED_TOKEN.equals(paymentMethodToken)) {
-            return AuthorizationResult.declined("card_declined");
+            return AuthorizationResult.declined("card_declined", "05", false);
         }
         if (INSUFFICIENT_FUNDS_TOKEN.equals(paymentMethodToken)) {
-            return AuthorizationResult.declined("insufficient_funds");
+            return AuthorizationResult.declined("insufficient_funds", "51", false);
+        }
+        if (EXPIRED_TOKEN.equals(paymentMethodToken)) {
+            return AuthorizationResult.declined("expired_card", "54", false);
+        }
+        if (ISSUER_UNAVAILABLE_TOKEN.equals(paymentMethodToken)) {
+            return AuthorizationResult.declined("issuer_unavailable", "91", true);
         }
         String reference = "auth_" + UUID.randomUUID();
         Money zero = Money.zero(amount.currency());
         holds.put(reference, new Hold(amount, zero, zero, HoldState.AUTHORIZED));
-        return AuthorizationResult.approved(reference);
+        return AuthorizationResult.approved(reference, "00");
     }
 
     @Override

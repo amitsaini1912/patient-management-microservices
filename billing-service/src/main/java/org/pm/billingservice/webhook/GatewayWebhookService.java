@@ -68,7 +68,8 @@ public class GatewayWebhookService {
             throw new IllegalArgumentException("webhook needs id, type and data");
         }
         return new GatewayEvent(id, type, uuidOrNull(text(data, "merchant_reference")), text(data, "authorization_id"),
-                text(data, "currency"), data.path("captured_minor").asLong(0), text(data, "decline_reason"));
+                text(data, "currency"), data.path("captured_minor").asLong(0), text(data, "decline_reason"),
+                text(data, "network_response_code"), data.path("retryable").asBoolean(false));
     }
 
     private static String text(JsonNode node, String field) {

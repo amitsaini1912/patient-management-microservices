@@ -123,10 +123,10 @@ public class PaymentService {
                 return payment; // the acquirer's webhook got here first and recorded exactly this (ADR 0010)
             }
             if (result.approved()) {
-                payment.authorize(result.processorReference());
+                payment.authorize(result.processorReference(), result.networkResponseCode());
                 paymentEvents.authorized(payment);
             } else {
-                payment.fail(result.declineReason());
+                payment.fail(result.declineReason(), result.networkResponseCode(), result.retryable());
                 paymentEvents.failed(payment);
             }
             return payment;
@@ -329,14 +329,15 @@ public class PaymentService {
                 if (status != PaymentStatus.CREATED) {
                     return GatewayEventOutcome.IGNORED_STALE;
                 }
-                payment.authorize(event.authorizationId());
+                payment.authorize(event.authorizationId(), event.networkResponseCode());
                 paymentEvents.authorized(payment);
             }
             case "payment.failed" -> {
                 if (status != PaymentStatus.CREATED) {
                     return GatewayEventOutcome.IGNORED_STALE;
                 }
-                payment.fail(event.declineReason() != null ? event.declineReason() : "declined");
+                payment.fail(event.declineReason() != null ? event.declineReason() : "declined",
+                        event.networkResponseCode(), event.retryable());
                 paymentEvents.failed(payment);
             }
             case "payment.captured" -> {

@@ -43,7 +43,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "simulator.api-key=test-api-key",
         "simulator.webhooks.secret=test-webhook-secret",
         "simulator.webhooks.delay=10ms",
-        "simulator.webhooks.initial-backoff=50ms"})
+        "simulator.webhooks.initial-backoff=50ms",
+        "simulator.card-vault.mode=fake"})
 @AutoConfigureMockMvc
 class SimulatorIntegrationTest {
 

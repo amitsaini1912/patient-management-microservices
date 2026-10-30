@@ -169,6 +169,26 @@ class GatewayWebhookIntegrationTest {
     }
 
     @Test
+    void failedWebhookRecordsTheNetworkCodeAndTheRetryableFlag() throws Exception {
+        // our step 3 never ran; the acquirer's webhook tells us the issuer was unavailable (91)
+        UUID paymentId = UUID.randomUUID();
+        paymentRepository.save(Payment.create(paymentId, billingAccountId, inr(1_000_00)));
+        Map<String, Object> event = objectMapper.readValue(webhook("payment.failed", paymentId, null, 0), Map.class);
+        @SuppressWarnings("unchecked") Map<String, Object> data = (Map<String, Object>) event.get("data");
+        data.put("decline_reason", "issuer_unavailable");
+        data.put("network_response_code", "91");
+        data.put("retryable", true);
+
+        assertThat(signedPost(objectMapper.writeValueAsString(event)).body()).contains("APPLIED");
+
+        Payment after = paymentRepository.findById(paymentId).orElseThrow();
+        assertThat(after.getStatus()).isEqualTo(PaymentStatus.FAILED);
+        assertThat(after.getFailureReason()).isEqualTo("issuer_unavailable");
+        assertThat(after.getNetworkResponseCode()).isEqualTo("91");
+        assertThat(after.isRetryable()).isTrue();
+    }
+
+    @Test
     void mismatchedOrUnknownEventsAreAcknowledgedButNotApplied() throws Exception {
         Payment payment = authorized();
         String wrongAuthorization = webhook("payment.captured", payment.getId(), "auth_someone_else", 1_000_00);

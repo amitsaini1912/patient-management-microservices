@@ -16,6 +16,10 @@ public record PaymentResponse(
         String capturedAmount,
         String refundedAmount,
         String failureReason,
+        // Day 11: the card network's answer (ISO 8583 field 39) and whether a FAILED payment is worth a NEW attempt
+        // (new Idempotency-Key; the same key returns this payment again)
+        String networkResponseCode,
+        boolean retryable,
         // Day 9: the books' currency, the rate locked at authorization, and the amount in book currency at that rate
         String bookCurrency,
         String fxRate,
@@ -36,6 +40,8 @@ public record PaymentResponse(
                 decimal(payment.getCapturedAmount()),
                 decimal(payment.getRefundedAmount()),
                 payment.getFailureReason(),
+                payment.getNetworkResponseCode(),
+                payment.isRetryable(),
                 payment.getBookCurrency().getCurrencyCode(),
                 payment.getLockedRate().rate().stripTrailingZeros().toPlainString(),
                 decimal(payment.getLockedRate().convert(payment.getAmount())),

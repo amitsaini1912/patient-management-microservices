@@ -51,7 +51,8 @@ public class SimulatorPaymentProcessor implements PaymentProcessor {
     record AmountRequest(long amountMinor, String currency) {}
 
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
-    record AuthorizationResponse(String id, String status, String declineReason) {}
+    record AuthorizationResponse(String id, String status, String declineReason, String networkResponseCode,
+                                 boolean retryable) {}
 
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
     record RefundResponse(String id) {}
@@ -66,8 +67,11 @@ public class SimulatorPaymentProcessor implements PaymentProcessor {
                         amount.currency().getCurrencyCode(), paymentMethodToken))
                 .retrieve().body(AuthorizationResponse.class));
         return switch (response.status()) {
-            case "AUTHORIZED" -> AuthorizationResult.approved(response.id());
-            case "DECLINED" -> AuthorizationResult.declined(response.declineReason());
+            case "AUTHORIZED" -> AuthorizationResult.approved(response.id(), response.networkResponseCode());
+            // a 91 (issuer unavailable) is a decline too, with retryable=true: the payment ends FAILED, the client may
+            // try again with a NEW Idempotency-Key (the same key would replay this FAILED payment)
+            case "DECLINED" -> AuthorizationResult.declined(response.declineReason(), response.networkResponseCode(),
+                    response.retryable());
             default -> throw new PaymentProcessorException("unexpected authorization status " + response.status());
         };
     }

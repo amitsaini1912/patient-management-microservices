@@ -78,6 +78,13 @@ public class Payment {
     @Column(name = "failure_reason")
     private String failureReason;
 
+    // what the card network answered (ISO 8583 field 39) and whether a decline may be retried (ADR 0014)
+    @Column(name = "network_response_code")
+    private String networkResponseCode;
+
+    @Column(nullable = false)
+    private boolean retryable;
+
     // the processor's id for the authorization; null until authorized
     @Column(name = "processor_reference")
     private String processorReference;
@@ -152,20 +159,35 @@ public class Payment {
     }
 
     public void authorize(String processorReference) {
+        authorize(processorReference, null);
+    }
+
+    public void authorize(String processorReference, String networkResponseCode) {
         if (processorReference == null || processorReference.isBlank()) {
             throw new IllegalArgumentException("processor reference is required");
         }
         moveTo(PaymentStatus.AUTHORIZED);
         this.processorReference = processorReference;
+        this.networkResponseCode = networkResponseCode;
         this.authorizedAt = Instant.now();
     }
 
     public void fail(String reason) {
+        fail(reason, null, false);
+    }
+
+    /**
+     * Declined. {@code retryable}: the card was never judged (91 issuer unavailable), so a new attempt may succeed.
+     * The payment itself still ends here (FAILED is terminal); a retry is a new payment with a new Idempotency-Key.
+     */
+    public void fail(String reason, String networkResponseCode, boolean retryable) {
         if (reason == null || reason.isBlank()) {
             throw new IllegalArgumentException("failure reason is required");
         }
         moveTo(PaymentStatus.FAILED);
         this.failureReason = reason;
+        this.networkResponseCode = networkResponseCode;
+        this.retryable = retryable;
     }
 
     /** Take all or part of the authorized amount. One capture only; the rest of the hold is released. */
@@ -252,6 +274,8 @@ public class Payment {
     public String getCardFingerprint() { return cardFingerprint; }
     public PaymentStatus getStatus() { return status; }
     public String getFailureReason() { return failureReason; }
+    public String getNetworkResponseCode() { return networkResponseCode; }
+    public boolean isRetryable() { return retryable; }
     public String getProcessorReference() { return processorReference; }
     public Instant getAuthorizedAt() { return authorizedAt; }
     public Long getVersion() { return version; }

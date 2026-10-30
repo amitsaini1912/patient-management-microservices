@@ -74,6 +74,19 @@ class PaymentControllerTest {
     }
 
     @Test
+    void issuerUnavailableShowsTheCodeAndThatANewAttemptMayWork() throws Exception {
+        Payment payment = Payment.create(ACCOUNT_ID, inr(500_00));
+        payment.fail("issuer_unavailable", "91", true);
+        when(paymentService.authorize(any(), any(), any(), any())).thenReturn(payment);
+
+        mvc.perform(post("/payments").contentType(MediaType.APPLICATION_JSON).content(createBody("500.00")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("FAILED"))
+                .andExpect(jsonPath("$.networkResponseCode").value("91"))
+                .andExpect(jsonPath("$.retryable").value(true));
+    }
+
+    @Test
     void missingFieldsAre400ProblemJson() throws Exception {
         mvc.perform(post("/payments").contentType(MediaType.APPLICATION_JSON).content("{\"amount\":\"10.00\"}"))
                 .andExpect(status().isBadRequest())

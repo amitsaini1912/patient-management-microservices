@@ -87,6 +87,18 @@ class SimulatorPaymentProcessorTest {
     }
 
     @Test
+    void networkResponseCodeAndRetryableAreReadFromTheAcquirersAnswer() {
+        response = "{\"id\":\"auth_1\",\"status\":\"AUTHORIZED\",\"network_response_code\":\"00\",\"retryable\":false}";
+        assertThat(adapter.authorize("k1", UUID.randomUUID(), inr(100), "tok_a"))
+                .isEqualTo(AuthorizationResult.approved("auth_1", "00"));
+
+        response = "{\"id\":\"auth_2\",\"status\":\"DECLINED\",\"decline_reason\":\"issuer_unavailable\","
+                + "\"network_response_code\":\"91\",\"retryable\":true}";
+        assertThat(adapter.authorize("k2", UUID.randomUUID(), inr(100), "tok_a"))
+                .isEqualTo(AuthorizationResult.declined("issuer_unavailable", "91", true));
+    }
+
+    @Test
     void captureVoidRefundHitTheRightPaths() {
         response = "{\"id\":\"re_1\"}";
 

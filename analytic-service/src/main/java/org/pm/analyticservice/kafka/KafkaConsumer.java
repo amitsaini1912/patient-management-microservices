@@ -21,7 +21,7 @@ public class KafkaConsumer {
         this.patientRepository = patientRepository;
     }
 
-    @KafkaListener(topics = "patient", groupId = "analytic-service")
+    @KafkaListener(topics = "${analytics.kafka.patient-topic}")
     public void consumeEvent(byte[] event) {
         try {
             PatientEvent patientEvent = PatientEvent.parseFrom(event);
@@ -35,8 +35,9 @@ public class KafkaConsumer {
 
             log.info("Saved patient to analytics store: [PatientId={}, Name={}]",
                     patientEvent.getPatientId(), patientEvent.getName());
-        } catch (InvalidProtocolBufferException e) {
-            log.error("Error deserializing event {}", e.getMessage());
+        } catch (InvalidProtocolBufferException | IllegalArgumentException e) {
+            // used to be logged and dropped; now the error handler parks it in patient.DLT for someone to look at
+            throw new InvalidEventException("patient event can't be read: " + e.getMessage(), e);
         }
     }
 }

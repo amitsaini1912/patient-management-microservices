@@ -165,10 +165,11 @@ class PaymentServiceIntegrationTest {
     }
 
     @Test
-    void paymentInOtherCurrencyThanAccountIsRejected() {
-        assertThatThrownBy(() -> paymentService.authorize(newKey(), billingAccountId, Money.ofMinor(100, "USD"), CARD))
+    void paymentInAnUnsupportedCurrencyIsRejected() {
+        // Day 9: USD/EUR cards are fine on an INR account (FxIntegrationTest); currencies we have no books for aren't
+        assertThatThrownBy(() -> paymentService.authorize(newKey(), billingAccountId, Money.ofMinor(100, "GBP"), CARD))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("is in INR");
+                .hasMessageContaining("GBP is not supported");
     }
 
     @Test

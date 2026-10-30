@@ -158,8 +158,8 @@ class PaymentRepositoryIntegrationTest {
     private void insertRaw(String status, long amount, long captured, long refunded) {
         jdbc.update("""
                 INSERT INTO payment (id, billing_account_id, amount_minor, currency, captured_amount_minor,
-                                     refunded_amount_minor, status, version, authorized_at)
-                VALUES (?, ?, ?, 'INR', ?, ?, ?, 0, now())""",
+                                     refunded_amount_minor, status, version, authorized_at, book_currency, fx_rate)
+                VALUES (?, ?, ?, 'INR', ?, ?, ?, 0, now(), 'INR', 1)""",
                 UUID.randomUUID(), billingAccountId, amount, captured, refunded, status);
     }
 

@@ -8,10 +8,12 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Currency;
 import java.util.Objects;
 import java.util.UUID;
+import org.pm.billingservice.fx.FxRate;
 import org.pm.billingservice.money.CurrencyMismatchException;
 import org.pm.billingservice.money.Money;
 
@@ -37,6 +39,17 @@ public class Payment {
 
     @Column(nullable = false, length = 3)
     private Currency currency;
+
+    // The currency our books are in (the billing account's, INR) and the rate LOCKED at authorization:
+    // 1 unit of `currency` = fxRate units of bookCurrency. Capture and the patient side of refunds use it (ADR 0012).
+    @Column(name = "book_currency", nullable = false, length = 3)
+    private Currency bookCurrency;
+
+    @Column(name = "fx_rate", nullable = false, precision = 18, scale = 8)
+    private BigDecimal fxRate;
+
+    @Column(name = "fx_rate_id")
+    private UUID fxRateId;
 
     @Column(name = "captured_amount_minor", nullable = false)
     private long capturedAmountMinor;
@@ -72,7 +85,7 @@ public class Payment {
 
     protected Payment() {}   // JPA needs a no-arg constructor
 
-    private Payment(UUID id, UUID billingAccountId, Money amount) {
+    private Payment(UUID id, UUID billingAccountId, Money amount, FxRate lockedRate) {
         Objects.requireNonNull(id, "id is required");
         Objects.requireNonNull(billingAccountId, "billingAccountId is required");
         Objects.requireNonNull(amount, "amount is required");
@@ -83,6 +96,13 @@ public class Payment {
         this.billingAccountId = billingAccountId;
         this.amountMinor = amount.amountMinor();
         this.currency = amount.currency();
+        Objects.requireNonNull(lockedRate, "lockedRate is required");
+        if (!lockedRate.base().equals(amount.currency())) {
+            throw new IllegalArgumentException("locked rate is for " + lockedRate.base() + ", payment is in " + amount.currency());
+        }
+        this.bookCurrency = lockedRate.quote();
+        this.fxRate = lockedRate.rate();
+        this.fxRateId = lockedRate.id();
         this.status = PaymentStatus.CREATED;
         this.createdAt = Instant.now();
         this.updatedAt = createdAt;
@@ -94,7 +114,12 @@ public class Payment {
 
     /** With a chosen id: PaymentService derives it from the Idempotency-Key, so a retry finds the same row. */
     public static Payment create(UUID id, UUID billingAccountId, Money amount) {
-        return new Payment(id, billingAccountId, amount);
+        return create(id, billingAccountId, amount, FxRate.identity(amount.currency()));
+    }
+
+    /** Paid in {@code amount}'s currency, booked in {@code lockedRate.quote()} at {@code lockedRate}. */
+    public static Payment create(UUID id, UUID billingAccountId, Money amount, FxRate lockedRate) {
+        return new Payment(id, billingAccountId, amount, lockedRate);
     }
 
     public void holdForReview() {
@@ -192,6 +217,10 @@ public class Payment {
     public Money getCapturedAmount() { return new Money(capturedAmountMinor, currency); }
     public Money getRefundedAmount() { return new Money(refundedAmountMinor, currency); }
     public Money getRefundableAmount() { return new Money(capturedAmountMinor - refundedAmountMinor, currency); }
+    public Currency getBookCurrency() { return bookCurrency; }
+    /** The rate locked at authorization (payment currency -> book currency). */
+    public FxRate getLockedRate() { return new FxRate(fxRateId, currency, bookCurrency, fxRate, "locked", createdAt); }
+    public boolean isForeignCurrency() { return !currency.equals(bookCurrency); }
     public PaymentStatus getStatus() { return status; }
     public String getFailureReason() { return failureReason; }
     public String getProcessorReference() { return processorReference; }

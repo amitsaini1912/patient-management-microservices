@@ -18,6 +18,11 @@ public enum AccountPurpose {
     REFUNDS(AccountType.EXPENSE),
     /** Gains (credit) and losses (debit) from currency conversion. */
     FX_GAIN_LOSS(AccountType.REVENUE),
+    /**
+     * Currency "trading" account, one per currency, linking the legs of a conversion so each currency balances.
+     * Foreign balance = the open position (e.g. USD the acquirer owes us); INR balance = what it's carried at.
+     */
+    FX_CLEARING(AccountType.EQUITY),
     /** Money we received but can't match to anything yet. Should be zero after reconciliation. */
     SUSPENSE(AccountType.LIABILITY);
 

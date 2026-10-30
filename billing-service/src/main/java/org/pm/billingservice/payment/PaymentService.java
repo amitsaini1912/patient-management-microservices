@@ -1,10 +1,13 @@
 package org.pm.billingservice.payment;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Currency;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
+import org.pm.billingservice.fx.FxRate;
+import org.pm.billingservice.fx.FxRateService;
 import org.pm.billingservice.ledger.AccountPurpose;
 import org.pm.billingservice.ledger.EntrySource;
 import org.pm.billingservice.ledger.JournalEntry;
@@ -51,6 +54,7 @@ public class PaymentService {
     private final LedgerService ledgerService;
     private final PaymentProcessor paymentProcessor;
     private final PaymentEvents paymentEvents;
+    private final FxRateService fxRates;
     private final TransactionTemplate transactionTemplate;
 
     public PaymentService(PaymentRepository paymentRepository,
@@ -59,6 +63,7 @@ public class PaymentService {
                           LedgerService ledgerService,
                           PaymentProcessor paymentProcessor,
                           PaymentEvents paymentEvents,
+                          FxRateService fxRates,
                           TransactionTemplate transactionTemplate) {
         this.paymentRepository = paymentRepository;
         this.refundRepository = refundRepository;
@@ -66,6 +71,7 @@ public class PaymentService {
         this.ledgerService = ledgerService;
         this.paymentProcessor = paymentProcessor;
         this.paymentEvents = paymentEvents;
+        this.fxRates = fxRates;
         this.transactionTemplate = transactionTemplate;
     }
 
@@ -84,12 +90,11 @@ public class PaymentService {
         Payment created = earlier.isPresent() ? earlier.get() : transactionTemplate.execute(tx -> {
             BillingAccount account = billingAccountRepository.findById(billingAccountId)
                     .orElseThrow(() -> new UnknownBillingAccountException(billingAccountId));
-            if (!account.getCurrency().equals(amount.currency())) {
-                // only same-currency payments until Day 9 (FX)
-                throw new IllegalArgumentException("billing account " + billingAccountId + " is in "
-                        + account.getCurrency() + ", payment is in " + amount.currency());
-            }
-            return paymentRepository.save(Payment.create(paymentId, billingAccountId, amount));
+            // The card may be charged in another supported currency; our books stay in the account's currency.
+            // The rate is LOCKED now: the patient's INR charge doesn't move if the rate does before capture.
+            fxRates.requireSupported(amount.currency());
+            FxRate locked = fxRates.current(amount.currency(), account.getCurrency());
+            return paymentRepository.save(Payment.create(paymentId, billingAccountId, amount, locked));
         });
 
         AuthorizationResult result = paymentProcessor.authorize("authorize:" + paymentId, paymentId, amount, paymentMethodToken);
@@ -179,8 +184,11 @@ public class PaymentService {
         return retryOnVersionConflict(() -> transactionTemplate.execute(tx -> {
             Payment payment = load(paymentId);
             payment.refund(refundAmount);
-            Refund refund = refundRepository.save(new Refund(refundId, paymentId, refundAmount, processorRefundReference, reason));
-            postRefund(payment, refund);
+            // today's market rate: the foreign money leaves our position at it (1 for same-currency payments)
+            FxRate refundRate = fxRates.current(payment.getAmount().currency(), payment.getBookCurrency());
+            Refund refund = refundRepository.save(new Refund(refundId, paymentId, refundAmount, processorRefundReference,
+                    reason, refundRate.rate()));
+            postRefund(payment, refund, refundRate);
             paymentEvents.refunded(payment, refund); // a retried attempt rolls back its event too: still one event
             return refund;
         }));
@@ -202,19 +210,34 @@ public class PaymentService {
      *   the patient is charged for the service:   DR patient receivable  / CR hospital revenue
      *   the patient pays it by card at once:      DR processor receivable / CR patient receivable
      * Net: patient owes 0, the acquirer owes us the money until settlement, revenue is earned.
+     *
+     * Paid in a foreign currency (ADR 0012), e.g. USD 100 at the locked rate 83.00 = INR 8,300.00:
+     *   INR  DR patient receivable 8,300 / CR revenue              8,300   (the charge, in our books' currency)
+     *   INR  DR FX clearing        8,300 / CR patient receivable   8,300   (paid: INR leg of the conversion)
+     *   USD  DR processor rcv        100 / CR FX clearing            100   (the acquirer owes us USD)
+     * Each currency balances on its own; FX clearing now holds USD 100 "bought" for INR 8,300.
      */
     private void postCapture(Payment payment, Money amount) {
         claim(payment);
+        Currency book = payment.getBookCurrency();
+        Money booked = payment.getLockedRate().convert(amount);
         LedgerAccount patientReceivable = ledgerService.patientReceivable(payment.getBillingAccountId());
-        LedgerAccount revenue = ledgerService.systemAccount(AccountPurpose.HOSPITAL_REVENUE, amount.currency());
+        LedgerAccount revenue = ledgerService.systemAccount(AccountPurpose.HOSPITAL_REVENUE, book);
         LedgerAccount processorReceivable = ledgerService.systemAccount(AccountPurpose.PROCESSOR_RECEIVABLE, amount.currency());
 
-        ledgerService.post(JournalEntry.draft("capture payment " + payment.getId())
+        JournalEntry entry = JournalEntry.draft("capture payment " + payment.getId())
                 .source(EntrySource.CAPTURE, payment.getId())
-                .debit(patientReceivable, amount)
-                .credit(revenue, amount)
-                .debit(processorReceivable, amount)
-                .credit(patientReceivable, amount));
+                .debit(patientReceivable, booked)
+                .credit(revenue, booked);
+        if (!payment.isForeignCurrency()) {
+            entry.debit(processorReceivable, amount).credit(patientReceivable, amount);
+        } else {
+            entry.debit(ledgerService.systemAccount(AccountPurpose.FX_CLEARING, book), booked)
+                    .credit(patientReceivable, booked)
+                    .debit(processorReceivable, amount)
+                    .credit(ledgerService.systemAccount(AccountPurpose.FX_CLEARING, amount.currency()), amount);
+        }
+        ledgerService.post(entry);
     }
 
     /**
@@ -222,20 +245,44 @@ public class PaymentService {
      *   the patient's charge is credited back:    DR refunds (contra-revenue) / CR patient receivable
      *   the money goes back to their card:        DR patient receivable     / CR processor receivable
      * Net: patient owes 0, the acquirer owes us less, refunds are visible next to revenue.
+     *
+     * Foreign currency, e.g. USD 50 refunded, locked rate 83.00, today 85.00:
+     *   INR  DR refunds            4,150 / CR patient receivable 4,150   (sale reversed at the rate it was booked)
+     *   INR  DR patient receivable 4,150 / CR FX clearing        4,250   (USD 50 leave our position at TODAY's rate)
+     *   INR  DR FX gain/loss         100                                  (realized loss: the USD cost more to give back)
+     *   USD  DR FX clearing           50 / CR processor rcv         50
+     * A falling rate makes it a gain (CR FX gain/loss).
      */
-    private void postRefund(Payment payment, Refund refund) {
+    private void postRefund(Payment payment, Refund refund, FxRate refundRate) {
         claim(payment);
         Money amount = refund.getAmount();
+        Currency book = payment.getBookCurrency();
+        Money reversed = payment.getLockedRate().convert(amount);
         LedgerAccount patientReceivable = ledgerService.patientReceivable(payment.getBillingAccountId());
-        LedgerAccount refunds = ledgerService.systemAccount(AccountPurpose.REFUNDS, amount.currency());
+        LedgerAccount refunds = ledgerService.systemAccount(AccountPurpose.REFUNDS, book);
         LedgerAccount processorReceivable = ledgerService.systemAccount(AccountPurpose.PROCESSOR_RECEIVABLE, amount.currency());
 
-        ledgerService.post(JournalEntry.draft("refund payment " + payment.getId())
+        JournalEntry entry = JournalEntry.draft("refund payment " + payment.getId())
                 .source(EntrySource.REFUND, refund.getId())
-                .debit(refunds, amount)
-                .credit(patientReceivable, amount)
-                .debit(patientReceivable, amount)
-                .credit(processorReceivable, amount));
+                .debit(refunds, reversed)
+                .credit(patientReceivable, reversed);
+        if (!payment.isForeignCurrency()) {
+            entry.debit(patientReceivable, amount).credit(processorReceivable, amount);
+        } else {
+            Money atToday = refundRate.convert(amount);
+            Money realized = atToday.minus(reversed); // > 0 loss, < 0 gain
+            LedgerAccount gainLoss = ledgerService.systemAccount(AccountPurpose.FX_GAIN_LOSS, book);
+            entry.debit(patientReceivable, reversed)
+                    .credit(ledgerService.systemAccount(AccountPurpose.FX_CLEARING, book), atToday)
+                    .debit(ledgerService.systemAccount(AccountPurpose.FX_CLEARING, amount.currency()), amount)
+                    .credit(processorReceivable, amount);
+            if (realized.isPositive()) {
+                entry.debit(gainLoss, realized);
+            } else if (realized.isNegative()) {
+                entry.credit(gainLoss, realized.negate());
+            }
+        }
+        ledgerService.post(entry);
     }
 
     /**

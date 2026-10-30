@@ -16,6 +16,10 @@ public record PaymentResponse(
         String capturedAmount,
         String refundedAmount,
         String failureReason,
+        // Day 9: the books' currency, the rate locked at authorization, and the amount in book currency at that rate
+        String bookCurrency,
+        String fxRate,
+        String bookAmount,
         Instant createdAt,
         Instant updatedAt) {
 
@@ -29,6 +33,9 @@ public record PaymentResponse(
                 decimal(payment.getCapturedAmount()),
                 decimal(payment.getRefundedAmount()),
                 payment.getFailureReason(),
+                payment.getBookCurrency().getCurrencyCode(),
+                payment.getLockedRate().rate().stripTrailingZeros().toPlainString(),
+                decimal(payment.getLockedRate().convert(payment.getAmount())),
                 payment.getCreatedAt(),
                 payment.getUpdatedAt());
     }

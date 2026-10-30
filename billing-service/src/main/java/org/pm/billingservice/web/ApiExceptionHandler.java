@@ -1,6 +1,7 @@
 package org.pm.billingservice.web;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.pm.billingservice.fx.NoFxRateException;
 import org.pm.billingservice.idempotency.IdempotencyFilter;
 import org.pm.billingservice.money.CurrencyMismatchException;
 import org.pm.billingservice.payment.IllegalPaymentStateException;
@@ -46,6 +47,14 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,
                 "the resource was changed by another request; re-read it and retry");
         problem.setTitle("Concurrent modification");
+        return problem;
+    }
+
+    /** e.g. a USD payment while no USD->INR rate is on file: valid request, can't be priced. */
+    @ExceptionHandler(NoFxRateException.class)
+    ProblemDetail noFxRate(NoFxRateException e) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, e.getMessage());
+        problem.setTitle("No exchange rate");
         return problem;
     }
 

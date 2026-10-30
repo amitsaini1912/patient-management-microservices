@@ -17,3 +17,4 @@ a new ADR supersedes an old one.
 | [0009](0009-idempotent-consumer-and-dlt.md) | analytic-service: idempotent payment-event consumer + dead-letter topics | Accepted |
 | [0010](0010-acquirer-simulator-and-signed-webhooks.md) | payment-network-simulator as our acquirer; signed, deduplicated, forward-only webhooks | Accepted |
 | [0011](0011-daily-reconciliation.md) | Daily reconciliation of the ledger against the acquirer's settlement report | Accepted |
+| [0012](0012-multi-currency-ledger.md) | Multi-currency: INR books, USD/EUR card payments, locked rate, FX clearing and revaluation | Accepted |

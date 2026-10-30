@@ -36,6 +36,20 @@ spring:
             - StripPrefix=1   # /api/payments/{id}/capture -> /payments/{id}/capture
             - JwtValidation   # payments always need a logged-in user
 
+        # Route for POST /api/cards to card-vault (ADR 0013): the patient app sends the card number HERE, never to
+        # billing. Only tokenization is routed - GET /cards/{token} and /detokenize are not reachable from outside.
+        # The gateway calls the vault with its OWN key (TOKENIZE only, from env); SetRequestHeader overwrites any
+        # X-Api-Key a client tries to send.
+        - id: card-vault-tokenize-route
+          uri: http://card-vault:4020
+          predicates:
+            - Path=/api/cards
+            - Method=POST
+          filters:
+            - StripPrefix=1   # /api/cards -> /cards
+            - JwtValidation   # only a logged-in user can tokenize
+            - SetRequestHeader=X-Api-Key, ${CARD_VAULT_KEY_GATEWAY:}
+
         # Route for /api/docs/patients to patient-service /v3/api-docs
         - id: api-docs-patient-route
           uri: http://patient-service:4000

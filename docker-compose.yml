@@ -1,6 +1,6 @@
 # Local development stack. Grows one service at a time (see each day's notes).
 #   cp .env.example .env      # then set real passwords
-#   docker compose up -d billing-db kafka
+#   docker compose up -d billing-db kafka vault-db
 services:
   billing-db:
     image: postgres:16
@@ -14,6 +14,23 @@ services:
       - billing-db-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${BILLING_DB_USER:-billing} -d billing"]
+      interval: 5s
+      retries: 10
+
+  # card-vault's own database: the only place card numbers are stored (encrypted). Separate from billing-db on
+  # purpose: different credentials, different backups, the smallest possible PCI scope (ADR 0013).
+  vault-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: vault
+      POSTGRES_USER: ${VAULT_DB_USER:-vault}
+      POSTGRES_PASSWORD: ${VAULT_DB_PASSWORD:?set VAULT_DB_PASSWORD in .env}
+    ports:
+      - "5436:5432"
+    volumes:
+      - vault-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${VAULT_DB_USER:-vault} -d vault"]
       interval: 5s
       retries: 10
 
@@ -43,3 +60,4 @@ services:
 
 volumes:
   billing-db-data:
+  vault-db-data:

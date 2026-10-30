@@ -1,11 +1,17 @@
 package org.pm.billingservice.payment;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.YearMonth;
+import java.time.ZoneOffset;
 import java.util.Currency;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
+import org.pm.billingservice.card.CardInfo;
+import org.pm.billingservice.card.CardVaultClient;
+import org.pm.billingservice.card.UnknownCardException;
 import org.pm.billingservice.fx.FxRate;
 import org.pm.billingservice.fx.FxRateService;
 import org.pm.billingservice.ledger.AccountPurpose;
@@ -55,6 +61,8 @@ public class PaymentService {
     private final PaymentProcessor paymentProcessor;
     private final PaymentEvents paymentEvents;
     private final FxRateService fxRates;
+    private final CardVaultClient cardVault;
+    private final Clock clock;
     private final TransactionTemplate transactionTemplate;
 
     public PaymentService(PaymentRepository paymentRepository,
@@ -64,6 +72,8 @@ public class PaymentService {
                           PaymentProcessor paymentProcessor,
                           PaymentEvents paymentEvents,
                           FxRateService fxRates,
+                          CardVaultClient cardVault,
+                          Clock clock,
                           TransactionTemplate transactionTemplate) {
         this.paymentRepository = paymentRepository;
         this.refundRepository = refundRepository;
@@ -72,6 +82,8 @@ public class PaymentService {
         this.paymentProcessor = paymentProcessor;
         this.paymentEvents = paymentEvents;
         this.fxRates = fxRates;
+        this.cardVault = cardVault;
+        this.clock = clock;
         this.transactionTemplate = transactionTemplate;
     }
 
@@ -86,6 +98,10 @@ public class PaymentService {
             return earlier.get(); // a previous attempt finished; only its response was lost
         }
 
+        // The card: only a vault token reaches us. Check it's real and not expired BEFORE anything is charged.
+        // (HTTP call outside any transaction; skipped on a retry that finds the CREATED row, which has its card.)
+        CardInfo card = earlier.isPresent() ? null : resolveCard(paymentMethodToken);
+
         // Saved as CREATED before calling the processor, so a crash mid-call still leaves a trace to reconcile.
         Payment created = earlier.isPresent() ? earlier.get() : transactionTemplate.execute(tx -> {
             BillingAccount account = billingAccountRepository.findById(billingAccountId)
@@ -94,7 +110,9 @@ public class PaymentService {
             // The rate is LOCKED now: the patient's INR charge doesn't move if the rate does before capture.
             fxRates.requireSupported(amount.currency());
             FxRate locked = fxRates.current(amount.currency(), account.getCurrency());
-            return paymentRepository.save(Payment.create(paymentId, billingAccountId, amount, locked));
+            Payment payment = Payment.create(paymentId, billingAccountId, amount, locked);
+            payment.attachCard(card);
+            return paymentRepository.save(payment);
         });
 
         AuthorizationResult result = paymentProcessor.authorize("authorize:" + paymentId, paymentId, amount, paymentMethodToken);
@@ -364,6 +382,17 @@ public class PaymentService {
      */
     private void claim(Payment payment) {
         paymentRepository.saveAndFlush(payment);
+    }
+
+    private CardInfo resolveCard(String token) {
+        if (token == null || token.isBlank()) {
+            throw new UnknownCardException("a card token is required");
+        }
+        CardInfo card = cardVault.metadata(token).orElseThrow(() -> new UnknownCardException("unknown card token"));
+        if (card.isExpiredIn(YearMonth.now(clock.withZone(ZoneOffset.UTC)))) {
+            throw new UnknownCardException("card ending " + card.last4() + " has expired");
+        }
+        return card;
     }
 
     private static boolean sameOutcome(Payment payment, AuthorizationResult result) {

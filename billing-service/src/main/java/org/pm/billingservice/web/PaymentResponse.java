@@ -20,6 +20,9 @@ public record PaymentResponse(
         String bookCurrency,
         String fxRate,
         String bookAmount,
+        // Day 10: which card (never the number; the fingerprint stays internal)
+        String cardLast4,
+        String cardBrand,
         Instant createdAt,
         Instant updatedAt) {
 
@@ -36,6 +39,8 @@ public record PaymentResponse(
                 payment.getBookCurrency().getCurrencyCode(),
                 payment.getLockedRate().rate().stripTrailingZeros().toPlainString(),
                 decimal(payment.getLockedRate().convert(payment.getAmount())),
+                payment.getCardLast4(),
+                payment.getCardBrand(),
                 payment.getCreatedAt(),
                 payment.getUpdatedAt());
     }

@@ -1,6 +1,8 @@
 package org.pm.billingservice.web;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.pm.billingservice.card.CardVaultUnavailableException;
+import org.pm.billingservice.card.UnknownCardException;
 import org.pm.billingservice.fx.NoFxRateException;
 import org.pm.billingservice.idempotency.IdempotencyFilter;
 import org.pm.billingservice.money.CurrencyMismatchException;
@@ -47,6 +49,24 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,
                 "the resource was changed by another request; re-read it and retry");
         problem.setTitle("Concurrent modification");
+        return problem;
+    }
+
+    /** The card token isn't from our vault, or the card expired: nothing was charged. */
+    @ExceptionHandler(UnknownCardException.class)
+    ProblemDetail unknownCard(UnknownCardException e) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, e.getMessage());
+        problem.setTitle("Invalid card");
+        return problem;
+    }
+
+    /** The vault didn't answer: nothing was charged, retrying with the same Idempotency-Key is safe. */
+    @ExceptionHandler(CardVaultUnavailableException.class)
+    ProblemDetail cardVaultUnavailable(CardVaultUnavailableException e, HttpServletRequest request) {
+        log.warn("card vault unavailable: {}", e.getMessage());
+        request.setAttribute(IdempotencyFilter.RETRYABLE_ATTRIBUTE, Boolean.TRUE);
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, "card service unavailable, retry later");
+        problem.setTitle("Card service unavailable");
         return problem;
     }
 

@@ -18,3 +18,4 @@ a new ADR supersedes an old one.
 | [0010](0010-acquirer-simulator-and-signed-webhooks.md) | payment-network-simulator as our acquirer; signed, deduplicated, forward-only webhooks | Accepted |
 | [0011](0011-daily-reconciliation.md) | Daily reconciliation of the ledger against the acquirer's settlement report | Accepted |
 | [0012](0012-multi-currency-ledger.md) | Multi-currency: INR books, USD/EUR card payments, locked rate, FX clearing and revaluation | Accepted |
+| [0013](0013-card-vault-tokenization.md) | card-vault: tokenization with AES-256-GCM; billing never sees a card number | Accepted |

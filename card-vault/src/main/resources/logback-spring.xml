@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Every log line goes through PanMaskingConverter: message AND stack trace are scanned for PANs (ADR 0013).
+     %nopex: the stack trace is already inside %maskedMsg, so Logback must not print it again unmasked. -->
+<configuration>
+    <conversionRule conversionWord="maskedMsg" converterClass="org.pm.cardvault.logging.PanMaskingConverter"/>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %5level [%thread] %logger{40} : %maskedMsg%n%nopex</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>

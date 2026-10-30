@@ -13,6 +13,7 @@ import java.time.Instant;
 import java.util.Currency;
 import java.util.Objects;
 import java.util.UUID;
+import org.pm.billingservice.card.CardInfo;
 import org.pm.billingservice.fx.FxRate;
 import org.pm.billingservice.money.CurrencyMismatchException;
 import org.pm.billingservice.money.Money;
@@ -50,6 +51,19 @@ public class Payment {
 
     @Column(name = "fx_rate_id")
     private UUID fxRateId;
+
+    // the card, as billing may know it: a vault token + metadata, never the number (ADR 0013)
+    @Column(name = "card_token")
+    private String cardToken;
+
+    @Column(name = "card_last4")
+    private String cardLast4;
+
+    @Column(name = "card_brand")
+    private String cardBrand;
+
+    @Column(name = "card_fingerprint")
+    private String cardFingerprint;
 
     @Column(name = "captured_amount_minor", nullable = false)
     private long capturedAmountMinor;
@@ -120,6 +134,17 @@ public class Payment {
     /** Paid in {@code amount}'s currency, booked in {@code lockedRate.quote()} at {@code lockedRate}. */
     public static Payment create(UUID id, UUID billingAccountId, Money amount, FxRate lockedRate) {
         return new Payment(id, billingAccountId, amount, lockedRate);
+    }
+
+    /** Which card pays: set once, before authorization. */
+    public void attachCard(CardInfo card) {
+        if (cardToken != null) {
+            throw new IllegalStateException("payment " + id + " already has a card");
+        }
+        this.cardToken = card.token();
+        this.cardLast4 = card.last4();
+        this.cardBrand = card.brand();
+        this.cardFingerprint = card.fingerprint();
     }
 
     public void holdForReview() {
@@ -221,6 +246,10 @@ public class Payment {
     /** The rate locked at authorization (payment currency -> book currency). */
     public FxRate getLockedRate() { return new FxRate(fxRateId, currency, bookCurrency, fxRate, "locked", createdAt); }
     public boolean isForeignCurrency() { return !currency.equals(bookCurrency); }
+    public String getCardToken() { return cardToken; }
+    public String getCardLast4() { return cardLast4; }
+    public String getCardBrand() { return cardBrand; }
+    public String getCardFingerprint() { return cardFingerprint; }
     public PaymentStatus getStatus() { return status; }
     public String getFailureReason() { return failureReason; }
     public String getProcessorReference() { return processorReference; }

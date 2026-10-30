@@ -5,6 +5,8 @@ metadata:
 type: Opaque
 stringData:
   postgres-password: "password"   # demo value, same pattern as patient-db; use a real secret store outside local k8s
+  # Day 13 audit chain key (ADR 0016). DEMO value for local k8s only - anyone reading this repo could forge the chain.
+  audit-hmac-key: "ZGVtby1hdWRpdC1rZXktTk9ULVNFQ1JFVC1yZXBsYWNlLW1lIQ=="
 
 ---
 apiVersion: apps/v1

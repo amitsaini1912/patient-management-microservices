@@ -31,6 +31,11 @@ spec:
                   key: postgres-password
             - name: SPRING_DATA_REDIS_HOST
               value: redis                     # Day 12: per-card rate limit buckets (k8s/redis.yaml)
+            - name: BILLING_AUDIT_KEY          # Day 13: audit chain HMAC key; billing won't start without it
+              valueFrom:
+                secretKeyRef:
+                  name: billing-secrets
+                  key: audit-hmac-key
 ---
 apiVersion: v1
 kind: Service

@@ -3,16 +3,20 @@ package org.pm.billingservice.payment;
 import com.google.protobuf.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 import java.util.function.Consumer;
+import org.pm.billingservice.audit.AuditLog;
 import org.pm.billingservice.outbox.OutboxWriter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import payment.events.PaymentEvent;
 
 /**
- * Turns payment changes into {@link PaymentEvent}s in the outbox. Every method must be called inside the
- * transaction that makes the change (OutboxWriter enforces it), after the change is applied to {@code payment}.
+ * Turns payment changes into {@link PaymentEvent}s in the outbox AND rows in the audit log (Day 13, ADR 0016).
+ * Every method must be called inside the transaction that makes the change (OutboxWriter and AuditLog enforce it),
+ * after the change is applied to {@code payment}. Every payment change goes through here, so nothing escapes the audit.
  */
 @Component
 public class PaymentEvents {
@@ -20,17 +24,20 @@ public class PaymentEvents {
     static final int SCHEMA_VERSION = 1;
 
     private final OutboxWriter outbox;
+    private final AuditLog audit;
     private final Clock clock;
     private final String topic;
 
-    public PaymentEvents(OutboxWriter outbox, Clock clock, @Value("${billing.events.payment-topic}") String topic) {
+    public PaymentEvents(OutboxWriter outbox, AuditLog audit, Clock clock,
+                         @Value("${billing.events.payment-topic}") String topic) {
         this.outbox = outbox;
+        this.audit = audit;
         this.clock = clock;
         this.topic = topic;
     }
 
     void authorized(Payment payment) {
-        append("payment.authorized", payment, event -> {});
+        append("payment.authorized", payment, event -> {}, Map.of());
     }
 
     void failed(Payment payment) {
@@ -38,28 +45,30 @@ public class PaymentEvents {
             if (payment.getFailureReason() != null) {
                 event.setFailureReason(payment.getFailureReason()); // protobuf setters reject null
             }
-        });
+        }, Map.of());
     }
 
     void captured(Payment payment) {
-        append("payment.captured", payment, event -> {});
+        append("payment.captured", payment, event -> {}, Map.of());
     }
 
     void voided(Payment payment) {
-        append("payment.voided", payment, event -> {});
+        append("payment.voided", payment, event -> {}, Map.of());
     }
 
     void expired(Payment payment) {
-        append("payment.expired", payment, event -> {});
+        append("payment.expired", payment, event -> {}, Map.of());
     }
 
     void refunded(Payment payment, Refund refund) {
         append("payment.refunded", payment, event -> event
                 .setRefundId(refund.getId().toString())
-                .setRefundAmountMinor(refund.getAmount().amountMinor()));
+                .setRefundAmountMinor(refund.getAmount().amountMinor()),
+                Map.of("refund_id", refund.getId().toString(), "refund_amount_minor", refund.getAmount().amountMinor()));
     }
 
-    private void append(String eventType, Payment payment, Consumer<PaymentEvent.Builder> details) {
+    private void append(String eventType, Payment payment, Consumer<PaymentEvent.Builder> details,
+                        Map<String, Object> auditExtras) {
         UUID eventId = UUID.randomUUID();
         Instant now = clock.instant();
         PaymentEvent.Builder event = PaymentEvent.newBuilder()
@@ -77,5 +86,25 @@ public class PaymentEvents {
         details.accept(event);
         outbox.append(eventId, "payment", payment.getId(), eventType, topic, payment.getId().toString(),
                 event.build().toByteArray());
+        audit.append(eventType, "payment", payment.getId().toString(), auditDetails(eventId, payment, auditExtras));
+    }
+
+    /** The payment after the change. Card: last4/brand only (never a number; the token is not needed for audit). */
+    private static Map<String, Object> auditDetails(UUID eventId, Payment payment, Map<String, Object> extras) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("event_id", eventId.toString());
+        details.put("billing_account_id", payment.getBillingAccountId().toString());
+        details.put("status", payment.getStatus().name());
+        details.put("currency", payment.getAmount().currency().getCurrencyCode());
+        details.put("amount_minor", payment.getAmount().amountMinor());
+        details.put("captured_minor", payment.getCapturedAmount().amountMinor());
+        details.put("refunded_minor", payment.getRefundedAmount().amountMinor());
+        details.put("failure_reason", payment.getFailureReason());
+        details.put("network_response_code", payment.getNetworkResponseCode());
+        details.put("processor_reference", payment.getProcessorReference());
+        details.put("card_last4", payment.getCardLast4());
+        details.put("card_brand", payment.getCardBrand());
+        details.putAll(extras);
+        return details;
     }
 }

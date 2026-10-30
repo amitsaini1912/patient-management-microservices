@@ -1,7 +1,6 @@
 package org.pm.apigateway;
 
 import java.util.UUID;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
@@ -31,12 +30,6 @@ class GatewayIntegrationTest extends GatewayTestSupport {
 
     @Autowired private WebTestClient web;
 
-    @BeforeEach
-    void reset() {
-        received.clear();
-        authStatusOverride = 0;
-    }
-
     // ---- JWT (weakness #7) ----
 
     @Test
@@ -51,9 +44,13 @@ class GatewayIntegrationTest extends GatewayTestSupport {
     @Test
     void brokenAuthServiceIs503Not500() {
         authStatusOverride = 500;
-        web.get().uri("/api/payments/1").header("Authorization", "Bearer valid-" + user()).exchange()
-                .expectStatus().isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
-        assertThat(received).isEmpty();
+        try {
+            web.get().uri("/api/payments/1").header("Authorization", "Bearer valid-" + user()).exchange()
+                    .expectStatus().isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+            assertThat(received).isEmpty();
+        } finally {
+            authStatusOverride = 0; // static, shared with other test classes
+        }
     }
 
     // ---- identity headers ----

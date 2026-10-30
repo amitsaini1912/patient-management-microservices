@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
@@ -15,6 +16,9 @@ import org.springframework.test.context.DynamicPropertySource;
  * Two tiny JDK HTTP servers stand in for the services behind the gateway:
  *   auth    GET /validate: "Bearer valid-<user>" -> 200 {"subject":"<user>","role":"USER"}, anything else -> 401
  *   backend every other path: 200 and remembers what it received (path + headers), playing billing / card-vault
+ * The servers and their state are STATIC, shared by every test class in the JVM: {@link #resetStubs()} puts them back
+ * before each test of every subclass. (CI once ran GatewayIntegrationTest before RedisDownTest, and a "broken
+ * auth-service" left over from the last test made RedisDownTest get 503 - test order is not guaranteed.)
  */
 abstract class GatewayTestSupport {
 
@@ -52,6 +56,12 @@ abstract class GatewayTestSupport {
             respond(exchange, 200, "{\"ok\":true}");
         });
         backend.start();
+    }
+
+    @BeforeEach
+    void resetStubs() {
+        received.clear();
+        authStatusOverride = 0;
     }
 
     @DynamicPropertySource

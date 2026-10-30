@@ -38,6 +38,19 @@ jobs:
       - name: Build and run tests
         run: ./mvnw -B verify
 
+      # Job logs need a GitHub login; annotations are public. On failure, show each failed test class + its first
+      # assertion/exception lines as an annotation, so a red run can be diagnosed from the run page or the API.
+      - name: Report failed tests
+        if: failure()
+        run: |
+          for f in target/surefire-reports/*.txt; do
+            [ -f "$f" ] || continue
+            if grep -qE "FAILURE|ERROR" "$f"; then
+              msg=$(grep -m4 -E "expected|Exception|Error|but was" "$f" | tr '\n' ' ' | cut -c1-600)
+              echo "::error title=${{ matrix.service }} $(basename "$f" .txt)::${msg}"
+            fi
+          done
+
 
 
   docker-build-push:

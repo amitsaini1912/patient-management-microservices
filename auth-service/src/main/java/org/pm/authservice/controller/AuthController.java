@@ -2,6 +2,7 @@ package org.pm.authservice.controller;
 
 import org.pm.authservice.dto.LoginRequestDTO;
 import org.pm.authservice.dto.LoginResponseDTO;
+import org.pm.authservice.dto.TokenIdentityDTO;
 import org.pm.authservice.service.AuthService;
 import io.swagger.v3.oas.annotations.Operation;
 import java.util.Optional;
@@ -37,10 +38,10 @@ public class AuthController {
         return ResponseEntity.ok(new LoginResponseDTO(token));
     }
 
-    @Operation(summary = "Validate Token")
+    @Operation(summary = "Validate Token; 200 body = who it belongs to (subject, role)")
     @GetMapping("/validate")
-    public ResponseEntity<Void> validateToken(
-            @RequestHeader("Authorization") String authHeader) {
+    public ResponseEntity<TokenIdentityDTO> validateToken(
+            @RequestHeader(value = "Authorization", required = false) String authHeader) {
 
         // Authorization: Bearer <token>
         if(authHeader == null || !authHeader.startsWith("Bearer ")) {
@@ -48,7 +49,7 @@ public class AuthController {
         }
 
         return authService.validateToken(authHeader.substring(7))
-                ? ResponseEntity.ok().build()
-                : ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.status(HttpStatus.UNAUTHORIZED).build());
     }
 }

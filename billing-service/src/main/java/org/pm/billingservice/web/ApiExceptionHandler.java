@@ -10,10 +10,13 @@ import org.pm.billingservice.payment.IllegalPaymentStateException;
 import org.pm.billingservice.payment.PaymentNotFoundException;
 import org.pm.billingservice.payment.UnknownBillingAccountException;
 import org.pm.billingservice.processor.PaymentProcessorException;
+import org.pm.billingservice.ratelimit.CardRateLimitedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -68,6 +71,21 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, "card service unavailable, retry later");
         problem.setTitle("Card service unavailable");
         return problem;
+    }
+
+    /**
+     * Too many attempts with this card (ADR 0015). Nothing was saved or charged. Like 503 the key is RELEASED, not
+     * stored: the same Idempotency-Key may be retried after Retry-After and then really runs.
+     */
+    @ExceptionHandler(CardRateLimitedException.class)
+    ResponseEntity<ProblemDetail> cardRateLimited(CardRateLimitedException e, HttpServletRequest request) {
+        request.setAttribute(IdempotencyFilter.RETRYABLE_ATTRIBUTE, Boolean.TRUE);
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.TOO_MANY_REQUESTS,
+                "too many payment attempts with this card; retry after " + e.retryAfterSeconds() + " s");
+        problem.setTitle("Too many attempts");
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(e.retryAfterSeconds()))
+                .body(problem);
     }
 
     /** e.g. a USD payment while no USD->INR rate is on file: valid request, can't be priced. */

@@ -20,3 +20,4 @@ a new ADR supersedes an old one.
 | [0012](0012-multi-currency-ledger.md) | Multi-currency: INR books, USD/EUR card payments, locked rate, FX clearing and revaluation | Accepted |
 | [0013](0013-card-vault-tokenization.md) | card-vault: tokenization with AES-256-GCM; billing never sees a card number | Accepted |
 | [0014](0014-card-network-and-issuer.md) | Card network + issuer inside the acquirer; ISO 8583-style 0100/0400; 91 = retryable decline | Accepted |
+| [0015](0015-rate-limiting.md) | Rate limiting: per user at the gateway, per card in billing; callers identified from the JWT | Accepted |

@@ -1,6 +1,6 @@
 # Local development stack. Grows one service at a time (see each day's notes).
 #   cp .env.example .env      # then set real passwords
-#   docker compose up -d billing-db kafka vault-db
+#   docker compose up -d billing-db kafka vault-db redis
 services:
   billing-db:
     image: postgres:16
@@ -56,6 +56,18 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
       interval: 10s
+      retries: 10
+
+  # Day 12: rate-limit buckets (api-gateway per user, billing per card). No named volume: buckets are short-lived.
+  # (Redis still snapshots to the image's anonymous /data on a clean stop, so a restart keeps them; a crash may
+  # reset limits - worst case a few extra attempts.)
+  redis:
+    image: redis:7.4-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
       retries: 10
 
 volumes:

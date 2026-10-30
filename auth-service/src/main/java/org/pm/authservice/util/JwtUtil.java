@@ -1,5 +1,6 @@
 package org.pm.authservice.util;
 
+import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -33,11 +34,13 @@ public class JwtUtil {
                 .compact();
     }
 
-    public void validateToken(String token) {
+    /** Verifies signature and expiry, then returns the claims. Throws JwtException for any invalid token. */
+    public Claims validateToken(String token) {
         try {
-            Jwts.parser().verifyWith((SecretKey) secretKey)
+            return Jwts.parser().verifyWith((SecretKey) secretKey)
                     .build()
-                    .parseSignedClaims(token);
+                    .parseSignedClaims(token)
+                    .getPayload();
         } catch (SignatureException e) {
             throw new JwtException("Invalid JWT signature");
         } catch (JwtException e) {

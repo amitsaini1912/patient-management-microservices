@@ -1,7 +1,9 @@
 package org.pm.authservice.service;
 
 import org.pm.authservice.dto.LoginRequestDTO;
+import org.pm.authservice.dto.TokenIdentityDTO;
 import org.pm.authservice.util.JwtUtil;
+import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import java.util.Optional;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -30,12 +32,13 @@ public class AuthService {
         return token;
     }
 
-    public boolean validateToken(String token) {
+    /** Empty for an invalid/expired token; otherwise who it belongs to. */
+    public Optional<TokenIdentityDTO> validateToken(String token) {
         try {
-            jwtUtil.validateToken(token);
-            return true;
+            Claims claims = jwtUtil.validateToken(token);
+            return Optional.of(new TokenIdentityDTO(claims.getSubject(), claims.get("role", String.class)));
         } catch (JwtException e){
-            return false;
+            return Optional.empty();
         }
     }
 }

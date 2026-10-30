@@ -29,6 +29,8 @@ spec:
                 secretKeyRef:
                   name: billing-secrets
                   key: postgres-password
+            - name: SPRING_DATA_REDIS_HOST
+              value: redis                     # Day 12: per-card rate limit buckets (k8s/redis.yaml)
 ---
 apiVersion: v1
 kind: Service

@@ -47,8 +47,17 @@ public class IdempotencyFilter extends OncePerRequestFilter {
     /** Set by an exception handler when the error is temporary: the key is released instead of storing the error. */
     public static final String RETRYABLE_ATTRIBUTE = IdempotencyFilter.class.getName() + ".retryable";
     /**
-     * Until the gateway forwards a caller id, every client shares one scope. Keys must therefore be
-     * globally unique (UUIDs); a guessable key could replay another client's response. See ADR 0007.
+     * Who is calling (Day 12): api-gateway sets X-User-Id from the validated JWT and removes any copy the client
+     * sent. Each user gets their own key space: user A's "order-1" and user B's "order-1" are different requests,
+     * and nobody can replay someone else's response by guessing their key. (Trust boundary: billing must only be
+     * reachable through the gateway; a direct caller could claim any X-User-Id.)
+     */
+    public static final String USER_HEADER = "X-User-Id";
+    /** The scope this request ran in, for {@link #serviceKey}. */
+    public static final String SCOPE_ATTRIBUTE = IdempotencyFilter.class.getName() + ".scope";
+    /**
+     * No X-User-Id (internal callers, tests, anything not through the gateway): one shared scope, as before Day 12.
+     * Keys there must be globally unique (UUIDs). See ADR 0007.
      */
     static final String DEFAULT_SCOPE = "default";
 
@@ -82,17 +91,19 @@ public class IdempotencyFilter extends OncePerRequestFilter {
             return;
         }
 
+        String scope = scopeOf(request);
+        request.setAttribute(SCOPE_ATTRIBUTE, scope);
         byte[] body = request.getInputStream().readAllBytes();
         String hash = requestHash(request.getMethod(), request.getRequestURI(), body);
         // micros: what Postgres stores, so this exact value can be matched again as our fencing token
         Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
 
-        if (store.tryClaim(DEFAULT_SCOPE, key, hash, now, now.plus(properties.ttl()))) {
-            execute(key, now, new CachedBodyRequest(request, body), response, chain);
+        if (store.tryClaim(scope, key, hash, now, now.plus(properties.ttl()))) {
+            execute(scope, key, now, new CachedBodyRequest(request, body), response, chain);
             return;
         }
 
-        Optional<IdempotencyRecord> existing = store.find(DEFAULT_SCOPE, key);
+        Optional<IdempotencyRecord> existing = store.find(scope, key);
         if (existing.isEmpty()) {
             // released or expired between our INSERT and SELECT: tell the client to simply retry
             writeConflict(response);
@@ -108,12 +119,43 @@ public class IdempotencyFilter extends OncePerRequestFilter {
             replay(record, response);
             return;
         }
-        if (store.tryTakeOver(DEFAULT_SCOPE, key, hash, now.minus(properties.lockTimeout()), now)) {
+        if (store.tryTakeOver(scope, key, hash, now.minus(properties.lockTimeout()), now)) {
             log.warn("taking over abandoned idempotency key {} (locked since {})", key, record.lockedAt());
-            execute(key, now, new CachedBodyRequest(request, body), response, chain);
+            execute(scope, key, now, new CachedBodyRequest(request, body), response, chain);
             return;
         }
         writeConflict(response);
+    }
+
+    /**
+     * "user:" + the first 32 hex chars of SHA-256(X-User-Id): fits the 100-char column whatever the id, and keeps
+     * the user's email out of idempotency rows. No header -> {@link #DEFAULT_SCOPE}.
+     */
+    static String scopeOf(HttpServletRequest request) {
+        String user = request.getHeader(USER_HEADER);
+        if (user == null || user.isBlank()) {
+            return DEFAULT_SCOPE;
+        }
+        return "user:" + sha256Hex(user.getBytes(StandardCharsets.UTF_8)).substring(0, 32);
+    }
+
+    /**
+     * The key PaymentService derives payment/refund ids from: the client's key within its scope. Default scope ->
+     * the key itself (so ids are the same as before Day 12); a user's scope -> "scope|key", so two users' equal keys
+     * become two different payments.
+     */
+    public static String serviceKey(HttpServletRequest request, String idempotencyKey) {
+        Object scope = request.getAttribute(SCOPE_ATTRIBUTE);
+        String effective = scope != null ? scope.toString() : scopeOf(request);
+        return DEFAULT_SCOPE.equals(effective) ? idempotencyKey : effective + "|" + idempotencyKey;
+    }
+
+    private static String sha256Hex(byte[] bytes) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is always available", e);
+        }
     }
 
     /** SHA-256 over method, path and the exact body bytes. Public so tests can build matching rows. */
@@ -129,23 +171,23 @@ public class IdempotencyFilter extends OncePerRequestFilter {
     }
 
     /** {@code lockedAt} = the value we claimed the key with; only that owner may complete or release it. */
-    private void execute(String key, Instant lockedAt, HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+    private void execute(String scope, String key, Instant lockedAt, HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         ContentCachingResponseWrapper cachingResponse = new ContentCachingResponseWrapper(response);
         try {
             chain.doFilter(request, cachingResponse);
         } catch (IOException | ServletException | RuntimeException e) {
-            store.release(DEFAULT_SCOPE, key, lockedAt); // unhandled error: nothing worth replaying, let the client retry
+            store.release(scope, key, lockedAt); // unhandled error: nothing worth replaying, let the client retry
             throw e;
         }
 
         int status = cachingResponse.getStatus();
         if (status >= 500 || Boolean.TRUE.equals(request.getAttribute(RETRYABLE_ATTRIBUTE))) {
             // temporary failure: a retry with the SAME key must run again, not replay this error
-            store.release(DEFAULT_SCOPE, key, lockedAt);
+            store.release(scope, key, lockedAt);
         } else {
             // 2xx and deterministic 4xx (400, 404, 409 wrong state, 422) are stored and replayed
-            boolean stored = store.complete(DEFAULT_SCOPE, key, lockedAt, status, cachingResponse.getContentType(),
+            boolean stored = store.complete(scope, key, lockedAt, status, cachingResponse.getContentType(),
                     cachingResponse.getHeader(HttpHeaders.LOCATION), cachingResponse.getContentAsByteArray());
             if (!stored) {
                 // we ran past the lock timeout and a retry took over; its response wins, ours still goes to our client

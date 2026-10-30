@@ -1,5 +1,6 @@
 package org.pm.billingservice.web;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.net.URI;
 import java.util.List;
@@ -38,8 +39,10 @@ public class PaymentController {
      */
     @PostMapping
     public ResponseEntity<PaymentResponse> authorize(@RequestHeader(IdempotencyFilter.HEADER) String idempotencyKey,
-                                                     @Valid @RequestBody CreatePaymentRequest request) {
-        Payment payment = paymentService.authorize(idempotencyKey, request.billingAccountId(),
+                                                     @Valid @RequestBody CreatePaymentRequest request,
+                                                     HttpServletRequest http) {
+        // the key within the caller's scope (Day 12): two users' equal keys must not become one payment
+        Payment payment = paymentService.authorize(IdempotencyFilter.serviceKey(http, idempotencyKey), request.billingAccountId(),
                 Money.parse(request.amount(), request.currency()), request.paymentMethodToken());
         return ResponseEntity.created(URI.create("/payments/" + payment.getId())).body(PaymentResponse.from(payment));
     }
@@ -67,11 +70,12 @@ public class PaymentController {
     @PostMapping("/{id}/refunds")
     public ResponseEntity<RefundResponse> refund(@RequestHeader(IdempotencyFilter.HEADER) String idempotencyKey,
                                                  @PathVariable UUID id,
-                                                 @Valid @RequestBody(required = false) RefundPaymentRequest request) {
+                                                 @Valid @RequestBody(required = false) RefundPaymentRequest request,
+                                                 HttpServletRequest http) {
         Money amount = request == null || request.amount() == null
                 ? null // refund everything still refundable
                 : Money.parse(request.amount(), request.currency());
-        Refund refund = paymentService.refund(idempotencyKey, id, amount, request == null ? null : request.reason());
+        Refund refund = paymentService.refund(IdempotencyFilter.serviceKey(http, idempotencyKey), id, amount, request == null ? null : request.reason());
         return ResponseEntity.created(URI.create("/payments/" + id + "/refunds/" + refund.getId()))
                 .body(RefundResponse.from(refund));
     }

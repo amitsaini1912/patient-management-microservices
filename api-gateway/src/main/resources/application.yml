@@ -2,13 +2,23 @@ server:
   port: 4004 # Gateway listens on port 4004
 
 spring:
+  # Day 12: the rate limiter's buckets. If Redis is down the limiter lets requests through (fail open) and logs.
+  # Docker/k8s: SPRING_DATA_REDIS_HOST=redis (same as patient-service)
+  # Short timeouts: when Redis dies, Lettuce queues commands on its broken connection until the command timeout
+  # (default 60s!) - every request would hang that long before failing open. Found by hand on Day 12.
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      timeout: 200ms
+      connect-timeout: 200ms
   cloud:
     gateway:
       routes:
 
         # Route for /api/auth/** to auth-service
         - id: auth-service-route
-          uri: http://auth-service:4005 #Internal address of service where it is running
+          uri: ${auth.service.url:http://auth-service:4005} #Internal address of service where it is running
           predicates:
             - Path=/auth/** # Request with this predicate forworded to internal address of service
           filters:
@@ -19,7 +29,7 @@ spring:
 
         # Route for /api/patients/** to patient-service
         - id: patient-service-route
-          uri: http://patient-service:4000
+          uri: ${PATIENT_SERVICE_URL:http://patient-service:4000}
           predicates:
             - Path=/api/patients/**
           filters:
@@ -29,30 +39,43 @@ spring:
 
         # Route for /api/payments/** to billing-service (HTTP port; gRPC is 9001)
         - id: billing-service-payments-route
-          uri: http://billing-service:4001
+          uri: ${BILLING_SERVICE_URL:http://billing-service:4001}
           predicates:
             - Path=/api/payments/**
           filters:
             - StripPrefix=1   # /api/payments/{id}/capture -> /payments/{id}/capture
             - JwtValidation   # payments always need a logged-in user
+            # Day 12 (ADR 0015): token bucket per user in Redis; AFTER JwtValidation, so the key is the real user.
+            # Default: 5 requests/second, bursts of 10. Empty bucket -> 429 + Retry-After.
+            - name: RequestRateLimiter
+              args:
+                key-resolver: "#{@userKeyResolver}"
+                redis-rate-limiter.replenishRate: ${GATEWAY_PAYMENTS_RATE_PER_SECOND:5}
+                redis-rate-limiter.burstCapacity: ${GATEWAY_PAYMENTS_BURST:10}
 
         # Route for POST /api/cards to card-vault (ADR 0013): the patient app sends the card number HERE, never to
         # billing. Only tokenization is routed - GET /cards/{token} and /detokenize are not reachable from outside.
         # The gateway calls the vault with its OWN key (TOKENIZE only, from env); SetRequestHeader overwrites any
         # X-Api-Key a client tries to send.
         - id: card-vault-tokenize-route
-          uri: http://card-vault:4020
+          uri: ${CARD_VAULT_URL:http://card-vault:4020}
           predicates:
             - Path=/api/cards
             - Method=POST
           filters:
             - StripPrefix=1   # /api/cards -> /cards
             - JwtValidation   # only a logged-in user can tokenize
+            # stricter than payments: tokenizing card after card is how "card testing" starts. 1/second, bursts of 3
+            - name: RequestRateLimiter
+              args:
+                key-resolver: "#{@userKeyResolver}"
+                redis-rate-limiter.replenishRate: ${GATEWAY_CARDS_RATE_PER_SECOND:1}
+                redis-rate-limiter.burstCapacity: ${GATEWAY_CARDS_BURST:3}
             - SetRequestHeader=X-Api-Key, ${CARD_VAULT_KEY_GATEWAY:}
 
         # Route for /api/docs/patients to patient-service /v3/api-docs
         - id: api-docs-patient-route
-          uri: http://patient-service:4000
+          uri: ${PATIENT_SERVICE_URL:http://patient-service:4000}
           predicates:
             - Path=/api-docs/patients
           filters:
@@ -61,7 +84,7 @@ spring:
         # Route for /api/docs/auth to auth-service /v3/api-docs
 
         - id: api-docs-auth-route
-          uri: http://auth-service:4005
+          uri: ${auth.service.url:http://auth-service:4005}
           predicates:
             - Path=/api-docs/auth
           filters:

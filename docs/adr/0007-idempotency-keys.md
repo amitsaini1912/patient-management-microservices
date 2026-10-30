@@ -40,6 +40,8 @@ It needs a way to say "this is the same request again", and we need to answer it
      Our void and the expiry job's void therefore share one key.
 7. **Scope** is one constant (`default`) until the gateway forwards a caller id (Day 12). Keys must be unguessable
    (UUIDs), or one client could replay another's response.
+   *Update Day 12 (ADR 0015): requests through the gateway are scoped per user (`X-User-Id`); `default` remains
+   for callers without it.*
 8. **Cleanup**: `@Scheduled` hourly `DELETE … WHERE expires_at < now` (index on `expires_at`). Safe on many instances.
 
 ## Alternatives considered

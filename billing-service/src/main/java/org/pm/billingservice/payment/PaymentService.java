@@ -23,6 +23,7 @@ import org.pm.billingservice.model.BillingAccount;
 import org.pm.billingservice.money.Money;
 import org.pm.billingservice.processor.AuthorizationResult;
 import org.pm.billingservice.processor.PaymentProcessor;
+import org.pm.billingservice.ratelimit.CardRateLimiter;
 import org.pm.billingservice.repository.BillingAccountRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,6 +63,7 @@ public class PaymentService {
     private final PaymentEvents paymentEvents;
     private final FxRateService fxRates;
     private final CardVaultClient cardVault;
+    private final CardRateLimiter cardRateLimiter;
     private final Clock clock;
     private final TransactionTemplate transactionTemplate;
 
@@ -73,6 +75,7 @@ public class PaymentService {
                           PaymentEvents paymentEvents,
                           FxRateService fxRates,
                           CardVaultClient cardVault,
+                          CardRateLimiter cardRateLimiter,
                           Clock clock,
                           TransactionTemplate transactionTemplate) {
         this.paymentRepository = paymentRepository;
@@ -83,6 +86,7 @@ public class PaymentService {
         this.paymentEvents = paymentEvents;
         this.fxRates = fxRates;
         this.cardVault = cardVault;
+        this.cardRateLimiter = cardRateLimiter;
         this.clock = clock;
         this.transactionTemplate = transactionTemplate;
     }
@@ -101,6 +105,11 @@ public class PaymentService {
         // The card: only a vault token reaches us. Check it's real and not expired BEFORE anything is charged.
         // (HTTP call outside any transaction; skipped on a retry that finds the CREATED row, which has its card.)
         CardInfo card = earlier.isPresent() ? null : resolveCard(paymentMethodToken);
+        if (card != null) {
+            // one attempt per NEW authorization of this card (ADR 0015); a retry of our own CREATED row is free.
+            // Before anything is saved or charged: a refused attempt leaves no trace but the 429.
+            cardRateLimiter.acquire(card.fingerprint());
+        }
 
         // Saved as CREATED before calling the processor, so a crash mid-call still leaves a trace to reconcile.
         Payment created = earlier.isPresent() ? earlier.get() : transactionTemplate.execute(tx -> {

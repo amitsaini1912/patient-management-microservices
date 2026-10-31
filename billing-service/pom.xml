@@ -134,6 +134,18 @@
             <artifactId>protobuf-java</artifactId>
             <version>4.29.1</version>
         </dependency>
+        <!-- Day 20a: trace context through the outbox (API only; the Java agent provides the implementation) -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-api</artifactId>
+            <version>1.44.1</version>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk-testing</artifactId>
+            <version>1.44.1</version>
+            <scope>test</scope>
+        </dependency>
         <!-- Day 19: circuit breaker + one retry around the risk engine call (used directly, no AOP) -->
         <dependency>
             <groupId>io.github.resilience4j</groupId>

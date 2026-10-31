@@ -2,6 +2,8 @@
 #   cp .env.example .env      # then set real passwords
 #   docker compose up -d billing-db kafka vault-db redis
 #   docker compose up -d --build risk-engine     # Day 19: needs ../razorpay-risk-agent checked out next to this repo
+#   docker compose up -d jaeger                  # Day 20a: traces at http://localhost:16686 (run Java services with
+#                                                #   monitoring/otel/run-traced.sh to send theirs)
 services:
   billing-db:
     image: postgres:16
@@ -82,6 +84,9 @@ services:
       REDIS_URL: redis://redis:6379/1
       KAFKA_ENABLED: "true"
       KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      # Day 20a: traces to Jaeger (billing's traceparent makes /v2/assess part of the payment's trace)
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      OTEL_SERVICE_NAME: risk-engine
     ports:
       - "8000:8000"
     volumes:
@@ -91,6 +96,17 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+
+  # Day 20a (ADR 0019): trace store + UI, in memory (traces are gone after a restart). OTLP in: 4317 gRPC, 4318 HTTP.
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+      MEMORY_MAX_TRACES: "50000"
+    ports:
+      - "16686:16686"   # UI + query API
+      - "4317:4317"
+      - "4318:4318"
 
 volumes:
   billing-db-data:

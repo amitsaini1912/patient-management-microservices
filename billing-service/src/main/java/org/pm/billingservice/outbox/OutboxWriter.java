@@ -2,6 +2,7 @@ package org.pm.billingservice.outbox;
 
 import java.sql.Timestamp;
 import java.time.Clock;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -12,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
  * Writes an event to the outbox table. MANDATORY: it refuses to run without a transaction, because an
  * outbox row written outside the business transaction is just a dual write again.
  * JdbcTemplate joins the surrounding JPA transaction (same DataSource, same connection).
+ * Day 20a: also stores the current trace context, so the relay can continue the request's trace (ADR 0019).
  */
 @Component
 public class OutboxWriter {
@@ -27,10 +29,12 @@ public class OutboxWriter {
     @Transactional(propagation = Propagation.MANDATORY)
     public void append(UUID eventId, String aggregateType, UUID aggregateId, String eventType,
                        String topic, String messageKey, byte[] payload) {
+        Map<String, String> trace = TraceContext.current();
         jdbc.update("""
-                INSERT INTO outbox_event (id, aggregate_type, aggregate_id, event_type, topic, message_key, payload, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                INSERT INTO outbox_event (id, aggregate_type, aggregate_id, event_type, topic, message_key, payload, created_at,
+                                          trace_parent, trace_state)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 eventId, aggregateType, aggregateId, eventType, topic, messageKey, payload,
-                Timestamp.from(clock.instant()));
+                Timestamp.from(clock.instant()), trace.get(TraceContext.TRACEPARENT), trace.get(TraceContext.TRACESTATE));
     }
 }

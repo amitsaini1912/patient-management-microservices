@@ -24,3 +24,4 @@ a new ADR supersedes an old one.
 | [0016](0016-tamper-evident-audit-log.md) | Tamper-evident audit log: one HMAC hash chain, appended in the business transaction | Accepted |
 | [0017](0017-risk-check-before-authorization.md) | Risk check before authorization: 300 ms budget, one retry, circuit breaker, fail open / to review; ADMIN review | Accepted |
 | [0018](0018-chargebacks-and-risk-feedback-events.md) | Chargebacks as a ledger loss (ADMIN), chargeback.created + payment.outcome JSON events for the risk engine | Accepted |
+| [0019](0019-distributed-tracing.md) | Distributed tracing: OpenTelemetry agent, W3C context through HTTP, gRPC, Kafka and the outbox; Jaeger | Accepted |

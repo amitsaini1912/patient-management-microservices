@@ -1,5 +1,6 @@
 package org.pm.billingservice.outbox;
 
+import io.opentelemetry.context.Scope;
 import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.time.Clock;
@@ -31,6 +32,10 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * Kafka down: the send times out, the row stays PENDING with attempts+1, and the relay backs off
  * (1s, 2s, 4s ... 60s). Payments keep working - they only write the outbox table.
+ *
+ * Tracing (Day 20a, ADR 0019): each row carries the trace context of the request that wrote it. The relay sends it
+ * as the {@code traceparent} header and makes it current while sending - with the OpenTelemetry agent, the Kafka
+ * "publish" span then joins the request's trace (the agent replaces the header with that span's own context).
  */
 @Component
 public class OutboxRelay {
@@ -63,10 +68,13 @@ public class OutboxRelay {
         if (clock.instant().isBefore(pausedUntil)) {
             return; // backing off after a failure
         }
-        int sent;
-        do {
-            sent = relayBatch();
-        } while (sent == properties.batchSize()); // a full batch: there may be more waiting
+        // not traced: an idle poll is not worth a trace; a row's send switches to the request's own context (send())
+        try (Scope ignored = TraceContext.unsampled().makeCurrent()) {
+            int sent;
+            do {
+                sent = relayBatch();
+            } while (sent == properties.batchSize()); // a full batch: there may be more waiting
+        }
     }
 
     /** One transaction: claim up to batchSize pending rows, publish them in order. Returns how many were sent. */
@@ -77,13 +85,14 @@ public class OutboxRelay {
                 return 0; // another instance is relaying right now
             }
             List<Row> batch = jdbc.query("""
-                            SELECT id, event_type, topic, message_key, payload FROM outbox_event
+                            SELECT id, event_type, topic, message_key, payload, trace_parent, trace_state FROM outbox_event
                             WHERE status = 'PENDING'
                             ORDER BY position
                             LIMIT ?
                             FOR UPDATE SKIP LOCKED""",
                     (rs, i) -> new Row(rs.getObject("id", UUID.class), rs.getString("event_type"), rs.getString("topic"),
-                            rs.getString("message_key"), rs.getBytes("payload")),
+                            rs.getString("message_key"), rs.getBytes("payload"), rs.getString("trace_parent"),
+                            rs.getString("trace_state")),
                     properties.batchSize());
 
             int count = 0;
@@ -133,7 +142,15 @@ public class OutboxRelay {
         // also as headers, so a consumer can dedup / route without parsing the payload
         record.headers().add("event_id", row.id().toString().getBytes(StandardCharsets.UTF_8));
         record.headers().add("event_type", row.eventType().getBytes(StandardCharsets.UTF_8));
-        kafka.send(record).get();
+        if (row.traceParent() != null) {
+            record.headers().add(TraceContext.TRACEPARENT, row.traceParent().getBytes(StandardCharsets.UTF_8));
+            if (row.traceState() != null) {
+                record.headers().add(TraceContext.TRACESTATE, row.traceState().getBytes(StandardCharsets.UTF_8));
+            }
+        }
+        try (Scope ignored = TraceContext.parent(row.traceParent(), row.traceState()).makeCurrent()) {
+            kafka.send(record).get();
+        }
     }
 
     private void markAttemptFailed(Row row, Throwable cause, boolean permanently) {
@@ -181,5 +198,6 @@ public class OutboxRelay {
         return pausedUntil;
     }
 
-    private record Row(UUID id, String eventType, String topic, String messageKey, byte[] payload) {}
+    private record Row(UUID id, String eventType, String topic, String messageKey, byte[] payload, String traceParent,
+                       String traceState) {}
 }

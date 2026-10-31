@@ -32,6 +32,14 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
+    /** Day 19: e.g. a payment review by a caller without the ADMIN role. */
+    @ExceptionHandler(ForbiddenException.class)
+    ProblemDetail forbidden(ForbiddenException e) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, e.getMessage());
+        problem.setTitle("Forbidden");
+        return problem;
+    }
+
     /** The request is valid, but the payment is in the wrong state for it (e.g. capture after void). */
     @ExceptionHandler(IllegalPaymentStateException.class)
     ProblemDetail illegalPaymentState(IllegalPaymentStateException e) {

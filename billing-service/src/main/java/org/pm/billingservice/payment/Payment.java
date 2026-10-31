@@ -17,6 +17,10 @@ import org.pm.billingservice.card.CardInfo;
 import org.pm.billingservice.fx.FxRate;
 import org.pm.billingservice.money.CurrencyMismatchException;
 import org.pm.billingservice.money.Money;
+import org.pm.billingservice.risk.RiskContext;
+import org.pm.billingservice.risk.RiskDecision;
+import org.pm.billingservice.risk.RiskSource;
+import org.pm.billingservice.risk.RiskVerdict;
 
 /**
  * One card payment. Status changes only through the methods below, and each one asks
@@ -93,6 +97,50 @@ public class Payment {
     @Column(name = "authorized_at")
     private Instant authorizedAt;
 
+    // ---- risk check before authorization (Day 19, ADR 0017) ----
+    // the client context sent to the risk engine, kept so a retried authorize sends exactly the same facts
+    @Column(name = "risk_client_ip")
+    private String riskClientIp;
+
+    @Column(name = "risk_device_id")
+    private String riskDeviceId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "risk_decision")
+    private RiskDecision riskDecision;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "risk_source")
+    private RiskSource riskSource;
+
+    @Column(name = "risk_score")
+    private Double riskScore;
+
+    // comma-separated, most decisive first (the engine's fixed reason codes, or FB_* for the fallback)
+    @Column(name = "risk_reason_codes")
+    private String riskReasonCodes;
+
+    @Column(name = "risk_model_version")
+    private String riskModelVersion;
+
+    @Column(name = "risk_rules_version")
+    private String riskRulesVersion;
+
+    public enum ReviewDecision { APPROVED, REJECTED }
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "review_decision")
+    private ReviewDecision reviewDecision;
+
+    @Column(name = "reviewed_by")
+    private String reviewedBy;
+
+    @Column(name = "reviewed_at")
+    private Instant reviewedAt;
+
+    @Column(name = "review_note")
+    private String reviewNote;
+
     // Long, not long: Spring Data treats "version == null" as a new entity, so save() persists
     // instead of merging even though we assign the UUID ourselves.
     @Version
@@ -154,8 +202,48 @@ public class Payment {
         this.cardFingerprint = card.fingerprint();
     }
 
+    /** Throws exactly what review() would, without changing anything (409 unless PENDING_REVIEW). */
+    public void checkReview(ReviewDecision decision) {
+        if (status != PaymentStatus.PENDING_REVIEW) {
+            throw new IllegalPaymentStateException(id, status,
+                    decision == ReviewDecision.APPROVED ? PaymentStatus.AUTHORIZED : PaymentStatus.FAILED);
+        }
+    }
+
+    /** Who is paying, as the risk engine sees it. Set once, when the payment is created. */
+    public void attachRiskContext(RiskContext context) {
+        this.riskClientIp = context.clientIp();
+        this.riskDeviceId = context.deviceId();
+    }
+
+    /** The risk decision that let this payment go on, hold it or decline it. */
+    public void recordRisk(RiskVerdict verdict) {
+        this.riskDecision = verdict.decision();
+        this.riskSource = verdict.source();
+        this.riskScore = verdict.score();
+        String codes = String.join(",", verdict.reasonCodes());
+        this.riskReasonCodes = codes.length() > 300 ? codes.substring(0, 300) : codes;
+        this.riskModelVersion = verdict.modelVersion();
+        this.riskRulesVersion = verdict.rulesVersion();
+    }
+
     public void holdForReview() {
         moveTo(PaymentStatus.PENDING_REVIEW);
+    }
+
+    /**
+     * A person decided on a held payment. Approve: the caller then authorizes it (or the network declines it).
+     * Reject: FAILED, never sent to the network.
+     */
+    public void review(ReviewDecision decision, String reviewer, String note, Instant at) {
+        checkReview(decision);
+        this.reviewDecision = decision;
+        this.reviewedBy = reviewer;
+        this.reviewNote = note;
+        this.reviewedAt = at;
+        if (decision == ReviewDecision.REJECTED) {
+            fail("risk_review_rejected");
+        }
     }
 
     public void authorize(String processorReference) {
@@ -278,6 +366,18 @@ public class Payment {
     public boolean isRetryable() { return retryable; }
     public String getProcessorReference() { return processorReference; }
     public Instant getAuthorizedAt() { return authorizedAt; }
+    public String getRiskClientIp() { return riskClientIp; }
+    public String getRiskDeviceId() { return riskDeviceId; }
+    public RiskDecision getRiskDecision() { return riskDecision; }
+    public RiskSource getRiskSource() { return riskSource; }
+    public Double getRiskScore() { return riskScore; }
+    public String getRiskReasonCodes() { return riskReasonCodes; }
+    public String getRiskModelVersion() { return riskModelVersion; }
+    public String getRiskRulesVersion() { return riskRulesVersion; }
+    public ReviewDecision getReviewDecision() { return reviewDecision; }
+    public String getReviewedBy() { return reviewedBy; }
+    public Instant getReviewedAt() { return reviewedAt; }
+    public String getReviewNote() { return reviewNote; }
     public Long getVersion() { return version; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

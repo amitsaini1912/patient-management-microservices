@@ -48,6 +48,10 @@ public class PaymentEvents {
         }, Map.of());
     }
 
+    void heldForReview(Payment payment) {
+        append("payment.held_for_review", payment, event -> {}, Map.of());
+    }
+
     void captured(Payment payment) {
         append("payment.captured", payment, event -> {}, Map.of());
     }
@@ -104,6 +108,13 @@ public class PaymentEvents {
         details.put("processor_reference", payment.getProcessorReference());
         details.put("card_last4", payment.getCardLast4());
         details.put("card_brand", payment.getCardBrand());
+        // Day 19: what the risk check decided, and the manual review of a held payment (who, when, why)
+        details.put("risk_decision", payment.getRiskDecision() == null ? null : payment.getRiskDecision().name());
+        details.put("risk_source", payment.getRiskSource() == null ? null : payment.getRiskSource().name());
+        details.put("risk_reason_codes", payment.getRiskReasonCodes());
+        details.put("review_decision", payment.getReviewDecision() == null ? null : payment.getReviewDecision().name());
+        details.put("reviewed_by", payment.getReviewedBy());
+        details.put("review_note", payment.getReviewNote());
         details.putAll(extras);
         return details;
     }

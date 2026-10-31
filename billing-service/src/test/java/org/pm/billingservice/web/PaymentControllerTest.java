@@ -10,6 +10,7 @@ import org.pm.billingservice.payment.PaymentStatus;
 import org.pm.billingservice.payment.Refund;
 import org.pm.billingservice.payment.UnknownBillingAccountException;
 import org.pm.billingservice.processor.PaymentProcessorException;
+import org.pm.billingservice.risk.RiskContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.http.MediaType;
@@ -48,7 +49,7 @@ class PaymentControllerTest {
     @Test
     void authorizeReturns201WithLocationAndDecimalAmounts() throws Exception {
         Payment payment = authorizedPayment(1_000_50);
-        when(paymentService.authorize(KEY, ACCOUNT_ID, inr(1_000_50), "pm_card_visa")).thenReturn(payment);
+        when(paymentService.authorize(eq(KEY), eq(ACCOUNT_ID), eq(inr(1_000_50)), eq("pm_card_visa"), any())).thenReturn(payment);
 
         mvc.perform(post("/payments").contentType(MediaType.APPLICATION_JSON).content("""
                         {"billingAccountId":"%s","amount":"1000.50","currency":"INR","paymentMethodToken":"pm_card_visa"}
@@ -65,7 +66,7 @@ class PaymentControllerTest {
     void declinedCardIsStill201WithFailedStatus() throws Exception {
         Payment payment = Payment.create(ACCOUNT_ID, inr(500_00));
         payment.fail("card_declined");
-        when(paymentService.authorize(any(), any(), any(), any())).thenReturn(payment);
+        when(paymentService.authorize(any(), any(), any(), any(), any())).thenReturn(payment);
 
         mvc.perform(post("/payments").contentType(MediaType.APPLICATION_JSON).content(createBody("500.00")))
                 .andExpect(status().isCreated())
@@ -77,7 +78,7 @@ class PaymentControllerTest {
     void issuerUnavailableShowsTheCodeAndThatANewAttemptMayWork() throws Exception {
         Payment payment = Payment.create(ACCOUNT_ID, inr(500_00));
         payment.fail("issuer_unavailable", "91", true);
-        when(paymentService.authorize(any(), any(), any(), any())).thenReturn(payment);
+        when(paymentService.authorize(any(), any(), any(), any(), any())).thenReturn(payment);
 
         mvc.perform(post("/payments").contentType(MediaType.APPLICATION_JSON).content(createBody("500.00")))
                 .andExpect(status().isCreated())
@@ -92,7 +93,7 @@ class PaymentControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentType("application/problem+json"));
 
-        verify(paymentService, never()).authorize(any(), any(), any(), any());
+        verify(paymentService, never()).authorize(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -113,7 +114,7 @@ class PaymentControllerTest {
 
     @Test
     void unknownBillingAccountIs422() throws Exception {
-        when(paymentService.authorize(any(), any(), any(), any())).thenThrow(new UnknownBillingAccountException(ACCOUNT_ID));
+        when(paymentService.authorize(any(), any(), any(), any(), any())).thenThrow(new UnknownBillingAccountException(ACCOUNT_ID));
 
         mvc.perform(post("/payments").contentType(MediaType.APPLICATION_JSON).content(createBody("10.00")))
                 .andExpect(status().isUnprocessableEntity());
@@ -255,6 +256,58 @@ class PaymentControllerTest {
         mvc.perform(post("/payments/{id}/void", id))
                 .andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.detail").value("the payment processor refused the request"));
+    }
+
+    // ---- Day 19: risk context + review (ADMIN only) ----
+
+    @Test
+    void authorizePassesTheClientIpAndDeviceToTheRiskCheck() throws Exception {
+        when(paymentService.authorize(any(), any(), any(), any(), any())).thenReturn(authorizedPayment(1_000_00));
+
+        mvc.perform(post("/payments").header("X-Forwarded-For", "203.0.113.9, 10.0.0.2").header("X-Device-Id", "dev-42")
+                        .contentType(MediaType.APPLICATION_JSON).content(createBody("1000.00")))
+                .andExpect(status().isCreated());
+
+        verify(paymentService).authorize(any(), any(), any(), any(), eq(new RiskContext("203.0.113.9", "dev-42")));
+    }
+
+    @Test
+    void reviewWithoutTheAdminRoleIs403AndChangesNothing() throws Exception {
+        UUID id = UUID.randomUUID();
+        for (String role : new String[] {null, "USER", "admin"}) {
+            MockHttpServletRequestBuilder request = post("/payments/{id}/review", id).header("X-User-Id", "u@test.com")
+                    .contentType(MediaType.APPLICATION_JSON).content("{\"decision\":\"APPROVE\"}");
+            if (role != null) {
+                request.header("X-User-Role", role);
+            }
+            mvc.perform(request).andExpect(status().isForbidden());
+        }
+        verify(paymentService, never()).review(any(), any(), any(), any());
+    }
+
+    @Test
+    void adminReviewNamesTheReviewer() throws Exception {
+        UUID id = UUID.randomUUID();
+        Payment payment = Payment.create(ACCOUNT_ID, inr(60_000_00));
+        payment.holdForReview();
+        payment.review(Payment.ReviewDecision.REJECTED, "admin@test.com", "stolen card", java.time.Instant.now());
+        when(paymentService.review(id, Payment.ReviewDecision.REJECTED, "admin@test.com", "stolen card")).thenReturn(payment);
+
+        mvc.perform(post("/payments/{id}/review", id).header("X-User-Id", "admin@test.com").header("X-User-Role", "ADMIN")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"decision\":\"REJECT\",\"note\":\"stolen card\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("FAILED"))
+                .andExpect(jsonPath("$.failureReason").value("risk_review_rejected"))
+                .andExpect(jsonPath("$.review.decision").value("REJECTED"))
+                .andExpect(jsonPath("$.review.reviewedBy").value("admin@test.com"));
+    }
+
+    @Test
+    void reviewNeedsADecision() throws Exception {
+        mvc.perform(post("/payments/{id}/review", UUID.randomUUID()).header("X-User-Role", "ADMIN")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"decision\":\"MAYBE\"}"))
+                .andExpect(status().isBadRequest());
+        verify(paymentService, never()).review(any(), any(), any(), any());
     }
 
     /** Every POST here moves money, so every POST carries an Idempotency-Key. */

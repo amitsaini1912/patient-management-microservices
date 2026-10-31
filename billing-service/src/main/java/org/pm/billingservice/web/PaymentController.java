@@ -10,6 +10,7 @@ import org.pm.billingservice.money.Money;
 import org.pm.billingservice.payment.Payment;
 import org.pm.billingservice.payment.PaymentService;
 import org.pm.billingservice.payment.Refund;
+import org.pm.billingservice.risk.RiskContext;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -22,10 +23,14 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * Reached through the gateway as /api/payments/** (JWT checked there; StripPrefix removes /api).
  * Every POST needs an Idempotency-Key header; IdempotencyFilter checks it before we get here.
+ * The gateway sets X-User-Id / X-User-Role from the token (Day 12); review needs role ADMIN (Day 19).
  */
 @RestController
 @RequestMapping("/payments")
 public class PaymentController {
+
+    static final String ROLE_HEADER = "X-User-Role";
+    static final String ADMIN = "ADMIN";
 
     private final PaymentService paymentService;
 
@@ -42,14 +47,35 @@ public class PaymentController {
                                                      @Valid @RequestBody CreatePaymentRequest request,
                                                      HttpServletRequest http) {
         // the key within the caller's scope (Day 12): two users' equal keys must not become one payment
+        // who is paying, for the risk check (Day 19): client IP (the gateway's X-Forwarded-For) + optional X-Device-Id
+        RiskContext context = RiskContext.of(http.getHeader("X-Forwarded-For"), http.getRemoteAddr(),
+                http.getHeader(RiskContext.DEVICE_HEADER));
         Payment payment = paymentService.authorize(IdempotencyFilter.serviceKey(http, idempotencyKey), request.billingAccountId(),
-                Money.parse(request.amount(), request.currency()), request.paymentMethodToken());
+                Money.parse(request.amount(), request.currency()), request.paymentMethodToken(), context);
         return ResponseEntity.created(URI.create("/payments/" + payment.getId())).body(PaymentResponse.from(payment));
     }
 
     @GetMapping("/{id}")
     public PaymentResponse get(@PathVariable UUID id) {
         return PaymentResponse.from(paymentService.get(id));
+    }
+
+    /**
+     * Decide on a payment the risk check held (PENDING_REVIEW). ADMIN only (403 otherwise); 409 if it isn't held.
+     * Approve -> authorized now (or FAILED if the network declines); reject -> FAILED, never sent to the network.
+     */
+    @PostMapping("/{id}/review")
+    public PaymentResponse review(@PathVariable UUID id, @Valid @RequestBody ReviewPaymentRequest request,
+                                  HttpServletRequest http) {
+        if (!ADMIN.equals(http.getHeader(ROLE_HEADER))) {
+            throw new ForbiddenException("reviewing a held payment needs the ADMIN role");
+        }
+        String user = http.getHeader(IdempotencyFilter.USER_HEADER);
+        String reviewer = user == null || user.isBlank() ? "unknown" : user.trim();
+        Payment.ReviewDecision decision = request.decision() == ReviewPaymentRequest.Action.APPROVE
+                ? Payment.ReviewDecision.APPROVED : Payment.ReviewDecision.REJECTED;
+        return PaymentResponse.from(paymentService.review(id, decision,
+                reviewer.length() > 100 ? reviewer.substring(0, 100) : reviewer, request.note()));
     }
 
     @PostMapping("/{id}/capture")

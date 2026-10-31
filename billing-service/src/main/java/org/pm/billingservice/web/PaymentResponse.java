@@ -1,6 +1,8 @@
 package org.pm.billingservice.web;
 
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.List;
 import java.util.UUID;
 import org.pm.billingservice.money.Money;
 import org.pm.billingservice.payment.Payment;
@@ -28,7 +30,16 @@ public record PaymentResponse(
         String cardLast4,
         String cardBrand,
         Instant createdAt,
-        Instant updatedAt) {
+        Instant updatedAt,
+        // Day 19: the risk check (null for payments made before it) and the manual review of a held payment
+        Risk risk,
+        Review review) {
+
+    /** source ENGINE = the risk engine decided; FALLBACK = billing's own rules (see fallbackReason in the logs). */
+    public record Risk(String decision, String source, List<String> reasonCodes, Double score, String modelVersion,
+                       String rulesVersion) {}
+
+    public record Review(String decision, String reviewedBy, Instant reviewedAt, String note) {}
 
     public static PaymentResponse from(Payment payment) {
         return new PaymentResponse(
@@ -48,7 +59,16 @@ public record PaymentResponse(
                 payment.getCardLast4(),
                 payment.getCardBrand(),
                 payment.getCreatedAt(),
-                payment.getUpdatedAt());
+                payment.getUpdatedAt(),
+                payment.getRiskDecision() == null ? null : new Risk(payment.getRiskDecision().name(),
+                        payment.getRiskSource().name(), codes(payment.getRiskReasonCodes()), payment.getRiskScore(),
+                        payment.getRiskModelVersion(), payment.getRiskRulesVersion()),
+                payment.getReviewDecision() == null ? null : new Review(payment.getReviewDecision().name(),
+                        payment.getReviewedBy(), payment.getReviewedAt(), payment.getReviewNote()));
+    }
+
+    private static List<String> codes(String joined) {
+        return joined == null || joined.isEmpty() ? List.of() : Arrays.asList(joined.split(","));
     }
 
     private static String decimal(Money money) {

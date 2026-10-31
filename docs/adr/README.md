@@ -22,3 +22,4 @@ a new ADR supersedes an old one.
 | [0014](0014-card-network-and-issuer.md) | Card network + issuer inside the acquirer; ISO 8583-style 0100/0400; 91 = retryable decline | Accepted |
 | [0015](0015-rate-limiting.md) | Rate limiting: per user at the gateway, per card in billing; callers identified from the JWT | Accepted |
 | [0016](0016-tamper-evident-audit-log.md) | Tamper-evident audit log: one HMAC hash chain, appended in the business transaction | Accepted |
+| [0017](0017-risk-check-before-authorization.md) | Risk check before authorization: 300 ms budget, one retry, circuit breaker, fail open / to review; ADMIN review | Accepted |

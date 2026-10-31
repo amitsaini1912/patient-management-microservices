@@ -24,6 +24,10 @@ import org.pm.billingservice.money.Money;
 import org.pm.billingservice.processor.AuthorizationResult;
 import org.pm.billingservice.processor.PaymentProcessor;
 import org.pm.billingservice.ratelimit.CardRateLimiter;
+import org.pm.billingservice.risk.RiskAssessor;
+import org.pm.billingservice.risk.RiskContext;
+import org.pm.billingservice.risk.RiskDecision;
+import org.pm.billingservice.risk.RiskVerdict;
 import org.pm.billingservice.repository.BillingAccountRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -64,6 +68,7 @@ public class PaymentService {
     private final FxRateService fxRates;
     private final CardVaultClient cardVault;
     private final CardRateLimiter cardRateLimiter;
+    private final RiskAssessor riskAssessor;
     private final Clock clock;
     private final TransactionTemplate transactionTemplate;
 
@@ -76,6 +81,7 @@ public class PaymentService {
                           FxRateService fxRates,
                           CardVaultClient cardVault,
                           CardRateLimiter cardRateLimiter,
+                          RiskAssessor riskAssessor,
                           Clock clock,
                           TransactionTemplate transactionTemplate) {
         this.paymentRepository = paymentRepository;
@@ -87,15 +93,23 @@ public class PaymentService {
         this.fxRates = fxRates;
         this.cardVault = cardVault;
         this.cardRateLimiter = cardRateLimiter;
+        this.riskAssessor = riskAssessor;
         this.clock = clock;
         this.transactionTemplate = transactionTemplate;
     }
 
-    /**
-     * Creates the payment and asks the processor to hold the money.
-     * A decline is a normal outcome: the payment is returned as FAILED. No money moved, so no ledger entry.
-     */
+    /** Without client context (internal callers, tests): the risk engine sees an unknown IP and device. */
     public Payment authorize(String idempotencyKey, UUID billingAccountId, Money amount, String paymentMethodToken) {
+        return authorize(idempotencyKey, billingAccountId, amount, paymentMethodToken, RiskContext.none());
+    }
+
+    /**
+     * Creates the payment, asks the risk engine, then asks the processor to hold the money.
+     * A decline is a normal outcome: the payment is returned as FAILED. No money moved, so no ledger entry.
+     * Risk (ADR 0017): HOLD -> PENDING_REVIEW, BLOCK -> FAILED (risk_declined); neither reaches the card network.
+     */
+    public Payment authorize(String idempotencyKey, UUID billingAccountId, Money amount, String paymentMethodToken,
+                             RiskContext riskContext) {
         UUID paymentId = paymentIdFor(idempotencyKey);
         Optional<Payment> earlier = transactionTemplate.execute(tx -> paymentRepository.findById(paymentId));
         if (earlier.isPresent() && earlier.get().getStatus() != PaymentStatus.CREATED) {
@@ -121,13 +135,44 @@ public class PaymentService {
             FxRate locked = fxRates.current(amount.currency(), account.getCurrency());
             Payment payment = Payment.create(paymentId, billingAccountId, amount, locked);
             payment.attachCard(card);
+            payment.attachRiskContext(riskContext);
             return paymentRepository.save(payment);
         });
 
+        // Risk BEFORE the card network sees anything. No transaction open, like the processor call; it takes at most
+        // the risk budget (300 ms) and never throws: engine trouble -> billing's fallback rules. A retry of this
+        // request sends the same facts (stored context), so the engine answers with its stored decision.
+        RiskVerdict verdict = riskAssessor.assess(created);
+        if (verdict.decision() != RiskDecision.ALLOW) {
+            return retryOnVersionConflict(() -> transactionTemplate.execute(tx -> {
+                Payment payment = load(created.getId());
+                if (payment.getStatus() != PaymentStatus.CREATED) {
+                    return payment; // a concurrent attempt of this same request recorded its verdict first
+                }
+                payment.recordRisk(verdict);
+                if (verdict.decision() == RiskDecision.HOLD) {
+                    payment.holdForReview();
+                    paymentEvents.heldForReview(payment);
+                } else {
+                    payment.fail("risk_declined");
+                    paymentEvents.failed(payment);
+                }
+                return payment;
+            }));
+        }
+
         AuthorizationResult result = paymentProcessor.authorize("authorize:" + paymentId, paymentId, amount, paymentMethodToken);
 
-        return retryOnVersionConflict(() -> transactionTemplate.execute(tx -> {
+        Payment recorded = retryOnVersionConflict(() -> transactionTemplate.execute(tx -> {
             Payment payment = load(created.getId());
+            if (payment.getStatus() == PaymentStatus.PENDING_REVIEW) {
+                // an earlier attempt of this request was HELD (e.g. fallback while the engine was down): the hold
+                // stands - authorizing now would skip the review
+                return payment;
+            }
+            if (payment.getRiskDecision() == null) {
+                payment.recordRisk(verdict);
+            }
             if (payment.getStatus() != PaymentStatus.CREATED && sameOutcome(payment, result)) {
                 return payment; // the acquirer's webhook got here first and recorded exactly this (ADR 0010)
             }
@@ -140,6 +185,56 @@ public class PaymentService {
             }
             return payment;
         }));
+        if (recorded.getStatus() == PaymentStatus.PENDING_REVIEW && result.approved()) {
+            paymentProcessor.voidAuthorization(voidKey(paymentId), result.processorReference()); // release our hold
+        }
+        return recorded;
+    }
+
+    /**
+     * A person's decision on a PENDING_REVIEW payment (the controller lets only ADMIN call this).
+     *   REJECTED: FAILED (risk_review_rejected), never sent to the card network.
+     *   APPROVED: authorized now, with the same three steps as authorize(); the network may still decline it.
+     * If someone else rejects it while our authorization is in flight, the rejection wins (409 here) and the hold we
+     * just placed is voided, so no money stays reserved on the card.
+     */
+    public Payment review(UUID paymentId, Payment.ReviewDecision decision, String reviewer, String note) {
+        Payment current = transactionTemplate.execute(tx -> load(paymentId));
+        current.checkReview(decision); // 409 before anything is sent
+
+        if (decision == Payment.ReviewDecision.REJECTED) {
+            return retryOnVersionConflict(() -> transactionTemplate.execute(tx -> {
+                Payment payment = load(paymentId);
+                payment.review(decision, reviewer, note, clock.instant());
+                paymentEvents.failed(payment);
+                return payment;
+            }));
+        }
+
+        AuthorizationResult result = paymentProcessor.authorize("authorize:" + paymentId, paymentId, current.getAmount(),
+                current.getCardToken());
+        try {
+            return retryOnVersionConflict(() -> transactionTemplate.execute(tx -> {
+                Payment payment = load(paymentId);
+                if (payment.getReviewDecision() == Payment.ReviewDecision.APPROVED && sameOutcome(payment, result)) {
+                    return payment; // a concurrent approval recorded this already (same processor key: one hold)
+                }
+                payment.review(decision, reviewer, note, clock.instant());
+                if (result.approved()) {
+                    payment.authorize(result.processorReference(), result.networkResponseCode());
+                    paymentEvents.authorized(payment);
+                } else {
+                    payment.fail(result.declineReason(), result.networkResponseCode(), result.retryable());
+                    paymentEvents.failed(payment);
+                }
+                return payment;
+            }));
+        } catch (IllegalPaymentStateException e) {
+            if (result.approved()) {
+                paymentProcessor.voidAuthorization(voidKey(paymentId), result.processorReference());
+            }
+            throw e;
+        }
     }
 
     /**

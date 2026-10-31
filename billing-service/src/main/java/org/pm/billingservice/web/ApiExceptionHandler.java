@@ -13,11 +13,14 @@ import org.pm.billingservice.processor.PaymentProcessorException;
 import org.pm.billingservice.ratelimit.CardRateLimitedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.pm.billingservice.db.DatabaseErrors;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.transaction.TransactionException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
@@ -69,6 +72,23 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, e.getMessage());
         problem.setTitle("Invalid card");
         return problem;
+    }
+
+    /**
+     * Day 23 (chaos): the database is unreachable or a pooled connection died (Postgres restart / failover: Hikari
+     * skips its liveness check for connections used in the last 500 ms, so each dead one fails one request).
+     * Temporary: 503 + Retry-After, key RELEASED, so a retry with the same Idempotency-Key runs again. Whatever the
+     * acquirer already did is reused by that retry (deterministic idempotency keys, Day 5) - never charged twice.
+     */
+    @ExceptionHandler({DataAccessException.class, TransactionException.class})
+    ResponseEntity<ProblemDetail> databaseUnavailable(RuntimeException e, HttpServletRequest request) {
+        if (!DatabaseErrors.isUnavailable(e)) {
+            throw e;   // a real error (constraint, bug): the default 500, as before
+        }
+        log.warn("database unavailable: {}", e.getMessage());
+        request.setAttribute(IdempotencyFilter.RETRYABLE_ATTRIBUTE, Boolean.TRUE);
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).header(HttpHeaders.RETRY_AFTER, "1")
+                .body(IdempotencyFilter.databaseUnavailableProblem());
     }
 
     /** The vault didn't answer: nothing was charged, retrying with the same Idempotency-Key is safe. */
@@ -137,7 +157,21 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
      * what was left -> 409, re-read the payment.
      */
     @ExceptionHandler(PaymentProcessorException.class)
-    ProblemDetail processorFailed(PaymentProcessorException e) {
+    ResponseEntity<ProblemDetail> processorFailed(PaymentProcessorException e, HttpServletRequest request) {
+        if (e.isNoAnswer()) {
+            // Day 23: outcome unknown - the retry with the same key finds out (and never charges twice)
+            log.warn("payment processor did not answer: {}", e.getMessage());
+            request.setAttribute(IdempotencyFilter.RETRYABLE_ATTRIBUTE, Boolean.TRUE);
+            ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE,
+                    "the payment processor did not answer: the outcome is unknown, retry with the same Idempotency-Key");
+            problem.setTitle("Payment processor unavailable");
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).header(HttpHeaders.RETRY_AFTER, "1").body(problem);
+        }
+        ProblemDetail problem = processorProblem(e);
+        return ResponseEntity.status(problem.getStatus()).body(problem);
+    }
+
+    private ProblemDetail processorProblem(PaymentProcessorException e) {
         if (e.isRefused()) {
             log.info("payment processor refused: {}", e.getMessage());
             ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,

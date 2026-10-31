@@ -1,0 +1,6 @@
+http     authorize 201                    673
+http     capture 200                      673
+http     login 200                        1
+http     tokenize 201                     673
+outcome  CAPTURED                         673
+retry    create_account after UNAVAILABLE 52

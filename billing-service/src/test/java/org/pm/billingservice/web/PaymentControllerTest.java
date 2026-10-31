@@ -272,6 +272,20 @@ class PaymentControllerTest {
                 .andExpect(jsonPath("$.detail").value("the payment processor refused the request"));
     }
 
+    @Test
+    void processorThatDidNotAnswerIs503RetryWithTheSameKey() throws Exception {
+        // Day 23: timeout = outcome unknown; a 502 "refused" made clients give up on payments approved later
+        UUID id = UUID.randomUUID();
+        when(paymentService.voidAuthorization(id)).thenThrow(
+                PaymentProcessorException.noAnswer("void: no answer from acquirer (Read timed out)", null));
+
+        mvc.perform(post("/payments/{id}/void", id))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(header().string("Retry-After", "1"))
+                .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("same Idempotency-Key")))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("Read timed out"))));
+    }
+
     // ---- Day 19: risk context + review (ADMIN only) ----
 
     @Test

@@ -6,6 +6,7 @@ import billing.BillingServiceGrpc.BillingServiceImplBase;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import net.devh.boot.grpc.server.service.GrpcService;
+import org.pm.billingservice.db.DatabaseErrors;
 import org.pm.billingservice.model.BillingAccount;
 import org.pm.billingservice.service.BillingAccountService;
 import org.slf4j.Logger;
@@ -40,8 +41,21 @@ public class BillingGrpcService extends BillingServiceImplBase {
             return;
         }
 
-        BillingAccount account = billingAccountService.getOrCreateAccount(
-                patientId, billingRequest.getName(), billingRequest.getEmail());
+        BillingAccount account;
+        try {
+            account = billingAccountService.getOrCreateAccount(
+                    patientId, billingRequest.getName(), billingRequest.getEmail());
+        } catch (RuntimeException e) {
+            if (!DatabaseErrors.isUnavailable(e)) {
+                throw e;
+            }
+            // Day 23 (chaos): database down -> UNAVAILABLE (gRPC's "retry later"), not UNKNOWN. Safe to retry:
+            // one account per patient (patient_id UNIQUE).
+            log.warn("createBillingAccount: database unavailable ({})", e.getMessage());
+            responseObserver.onError(Status.UNAVAILABLE
+                    .withDescription("temporarily unavailable, retry").asRuntimeException());
+            return;
+        }
 
         BillingResponse response = BillingResponse.newBuilder()
                 .setAccountId(account.getId().toString())

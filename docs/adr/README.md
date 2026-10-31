@@ -28,3 +28,4 @@ a new ADR supersedes an old one.
 | [0020](0020-metrics-dashboards-json-logs.md) | Metrics for every service, billing business metrics, provisioned Grafana dashboard, JSON logs with trace ids | Accepted |
 | [0021](0021-correctness-under-concurrency.md) | Correctness under concurrency: storm tests, row lock when recording, 409 for refused amounts, property tests | Accepted |
 | [0022](0022-load-testing-with-k6.md) | k6 checkout load test: open model, fresh isolated stack, server-side fallback counter next to latencies | Accepted |
+| [0023](0023-failure-answers-and-timeouts.md) | Temporary failures = 503 + Retry-After (database by cause, acquirer no-answer, gateway can not connect), 504 on gateway timeouts | Accepted |

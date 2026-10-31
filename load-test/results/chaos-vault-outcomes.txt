@@ -1,0 +1,13 @@
+http     authorize 201                    502
+http     authorize 503                    6
+http     capture 200                      502
+http     login 200                        1
+http     tokenize 201                     503
+http     tokenize 503                     975
+http     tokenize 504                     103
+outcome  CAPTURED                         502
+outcome  authorize_503                    1
+outcome  tokenize_503                     138
+outcome  tokenize_504                     103
+retry    authorize after 503              5
+retry    tokenize after 503               837

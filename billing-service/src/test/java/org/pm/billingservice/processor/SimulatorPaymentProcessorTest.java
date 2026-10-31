@@ -128,23 +128,31 @@ class SimulatorPaymentProcessorTest {
         for (int failed : new int[] {401, 500, 503}) {   // our key, or the acquirer broken -> stays 502
             status = failed;
             assertThatThrownBy(() -> adapter.voidAuthorization("k", "auth_1"))
-                    .isInstanceOfSatisfying(PaymentProcessorException.class, e -> assertThat(e.isRefused()).isFalse());
+                    .isInstanceOfSatisfying(PaymentProcessorException.class, e -> {
+                        assertThat(e.isRefused()).isFalse();
+                        assertThat(e.isNoAnswer()).isFalse();   // it answered: a real error, 502
+                    });
         }
     }
 
     @Test
     void noAnswerIsAProcessorExceptionNotADecline() {
-        // a timeout means "unknown outcome": the client gets 502 and retries with the same key
+        // a timeout means "unknown outcome": the client gets 503 (Day 23; was 502) and retries with the same key
         delayMs = 1_500;
         SimulatorPaymentProcessor impatient = adapter(URI.create("http://localhost:" + acquirer.getAddress().getPort()),
                 Duration.ofMillis(300));
         assertThatThrownBy(() -> impatient.capture("k", "auth_1", inr(100)))
-                .isInstanceOf(PaymentProcessorException.class).hasMessageContaining("no answer");
+                .isInstanceOfSatisfying(PaymentProcessorException.class, e -> {
+                    assertThat(e).hasMessageContaining("no answer");
+                    assertThat(e.isNoAnswer()).isTrue();
+                    assertThat(e.isRefused()).isFalse();
+                });
 
         SimulatorPaymentProcessor nobodyHome = adapter(URI.create("http://localhost:1"), Duration.ofSeconds(1));
         assertThatThrownBy(() -> nobodyHome.authorize("k", UUID.randomUUID(), inr(100), "pm_card_visa"))
-                .isInstanceOf(PaymentProcessorException.class);
+                .isInstanceOfSatisfying(PaymentProcessorException.class, e -> assertThat(e.isNoAnswer()).isTrue());
     }
+
 
     private static SimulatorPaymentProcessor adapter(URI baseUrl, Duration readTimeout) {
         return new SimulatorPaymentProcessor(RestClient.builder(),

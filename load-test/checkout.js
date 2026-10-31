@@ -15,7 +15,7 @@
 //   k6 run -e PROFILE=rate -e RATE=20 -e DURATION=2m --summary-export=load-test/results/rate20-before.json load-test/checkout.js
 import http from 'k6/http';
 import grpc from 'k6/net/grpc';
-import { check, fail } from 'k6';
+import { check, fail, sleep } from 'k6';
 import { Counter, Trend } from 'k6/metrics';
 import exec from 'k6/execution';
 
@@ -38,6 +38,11 @@ const profiles = {
       { duration: '10s', target: 30 }, { duration: '1m', target: 30 },
       { duration: '10s', target: 40 }, { duration: '1m', target: 40 },
     ],
+  },
+  // Day 23 chaos: a steady 5 checkouts/s while load-test/chaos.sh breaks something
+  chaos: {
+    executor: 'constant-arrival-rate', rate: Number(__ENV.RATE || 5), timeUnit: '1s',
+    duration: __ENV.DURATION || '3m', preAllocatedVUs: 50, maxVUs: 400,
   },
   // one fixed rate, for before/after comparisons
   rate: {
@@ -65,6 +70,8 @@ export const options = {
 const checkoutDuration = new Trend('checkout_duration', true);   // steps 2-4, as the patient waits for them
 const accountDuration = new Trend('grpc_account_duration', true);
 const outcomes = new Counter('payment_outcomes');               // tagged with the payment's status
+const retries = new Counter('client_retries');                    // tagged with step + status that caused it
+const MAX_ATTEMPTS = Number(__ENV.MAX_ATTEMPTS || 6);
 const grpcClient = new grpc.Client();
 grpcClient.load(['../billing-service/src/main/proto'], 'billing_service.proto');
 let grpcConnected = false;
@@ -85,39 +92,62 @@ export default function (data) {
   const auth = { Authorization: `Bearer ${data.token}`, 'Content-Type': 'application/json' };
 
   // 1. account for a new patient
+  // (retried on UNAVAILABLE = gRPC's "try again later"; safe: one account per patient id)
   let t = Date.now();
-  const acc = grpcClient.invoke('BillingService/CreateBillingAccount', {
-    patientId: uuid(), name: 'Load Test', email: `load+${exec.scenario.iterationInTest}@test.com`,
-  }, { tags: { name: 'create_account' } });
+  const account = { patientId: uuid(), name: 'Load Test', email: `load+${exec.scenario.iterationInTest}@test.com` };
+  let acc;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    acc = grpcClient.invoke('BillingService/CreateBillingAccount', account, { tags: { name: 'create_account' } });
+    if (!acc || acc.status !== grpc.StatusUnavailable || attempt === MAX_ATTEMPTS) break;
+    retries.add(1, { step: 'create_account', status: 'UNAVAILABLE' });
+    sleep(1);
+  }
   accountDuration.add(Date.now() - t);
-  if (!check(acc, { 'account created': (r) => r && r.status === grpc.StatusOK })) return;
+  if (!check(acc, { 'account created': (r) => r && r.status === grpc.StatusOK })) {
+    return outcomes.add(1, { status: `create_account_grpc_${acc ? acc.status : 'none'}` });
+  }
   const accountId = acc.message.accountId;
 
   const start = Date.now();
   // 2. new card -> token
-  const card = http.post(`${GATEWAY}/api/cards`,
+  const card = postRetrying(`${GATEWAY}/api/cards`,
     JSON.stringify({ pan: randomPan(), expiry_month: 12, expiry_year: 2030 }),
     { headers: auth, tags: { name: 'tokenize' } });
-  if (!check(card, { 'card tokenized (201)': (r) => r.status === 201 })) return;
+  if (!check(card, { 'card tokenized (201)': (r) => r.status === 201 })) return outcomes.add(1, { status: `tokenize_${card.status}` });
 
   // 3. authorize INR 100.00 - 2,000.00 (small: the risk engine holds new cards from INR 50,000)
   const amount = (100 + Math.floor(Math.random() * 1900)).toFixed(2);
-  const pay = http.post(`${GATEWAY}/api/payments`,
+  const pay = postRetrying(`${GATEWAY}/api/payments`,
     JSON.stringify({ billingAccountId: accountId, amount, currency: 'INR', paymentMethodToken: card.json('token') }),
     { headers: { ...auth, 'Idempotency-Key': uuid(), 'X-Device-Id': `dev-${uuid()}` }, tags: { name: 'authorize' } });
-  if (!check(pay, { 'payment created (201)': (r) => r.status === 201 })) return;
+  if (!check(pay, { 'payment created (201)': (r) => r.status === 201 })) return outcomes.add(1, { status: `authorize_${pay.status}` });
   const payment = pay.json();
 
   // 4. capture the full amount
   let status = payment.status;
   if (status === 'AUTHORIZED') {
-    const cap = http.post(`${GATEWAY}/api/payments/${payment.id}/capture`, null,
+    const cap = postRetrying(`${GATEWAY}/api/payments/${payment.id}/capture`, null,
       { headers: { Authorization: auth.Authorization, 'Idempotency-Key': uuid() }, tags: { name: 'capture' } });
     if (check(cap, { 'captured (200)': (r) => r.status === 200 })) status = cap.json('status');
+    else status = `capture_${cap.status}`;
   }
   checkoutDuration.add(Date.now() - start);
   outcomes.add(1, { status });
   check(status, { 'payment CAPTURED': (s) => s === 'CAPTURED' });
+}
+
+// A well-behaved client (Day 23): on 503 (temporarily unavailable) or 409 + Retry-After (same key still in
+// progress) wait and send the SAME request with the SAME Idempotency-Key again. Anything else is final.
+function postRetrying(url, body, params) {
+  let res;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    res = http.post(url, body, params);
+    const temporary = res.status === 503 || (res.status === 409 && res.headers['Retry-After']) || res.status === 0;
+    if (!temporary || attempt === MAX_ATTEMPTS) return res;
+    retries.add(1, { step: params.tags.name, status: String(res.status) });
+    sleep(Math.min(Number(res.headers['Retry-After'] || 1), 5));
+  }
+  return res;
 }
 
 // Luhn-valid Visa-like number, 4 + 14 random digits + check digit. The simulator's issuer approves any card it

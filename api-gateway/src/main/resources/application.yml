@@ -16,6 +16,13 @@ spring:
       connect-timeout: 200ms
   cloud:
     gateway:
+      # Day 23 (chaos): no timeouts before - a hung service held clients for as long as THEY would wait (60 s in
+      # k6), and a full accept queue gave a 500 after Netty's 30 s connect timeout. Now: can't connect in 2 s ->
+      # 503 + Retry-After (UpstreamUnavailableFilter); no answer in 10 s -> 504. 10 s > billing's slowest legitimate
+      # authorize (risk 0.3 s + card-vault 2 s + simulator 5 s read timeout). Tokenization: 3 s, see its route.
+      httpclient:
+        connect-timeout: 2000
+        response-timeout: 10s
       routes:
 
         # Route for /api/auth/** to auth-service
@@ -61,6 +68,9 @@ spring:
         # X-Api-Key a client tries to send.
         - id: card-vault-tokenize-route
           uri: ${CARD_VAULT_URL:http://card-vault:4020}
+          metadata:
+            response-timeout: 3000   # ms; the vault answers in < 10 ms (Day 22), billing gives it 2 s
+            connect-timeout: 1000
           predicates:
             - Path=/api/cards
             - Method=POST

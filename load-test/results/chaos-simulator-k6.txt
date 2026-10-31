@@ -1,0 +1,36 @@
+
+     ✓ account created
+     ✓ card tokenized (201)
+     ✗ payment created (201)
+      ↳  74% — ✓ 534 / ✗ 180
+     ✓ captured (200)
+     ✓ payment CAPTURED
+
+   ✗ checkout_duration..............: avg=1.48s    med=111ms    p(90)=6.24s    p(95)=12.28s   p(99)=15.44s   max=16.36s  
+     checks.........................: 94.39% 3030 out of 3210
+     client_retries.................: 1126   7.475259/s
+     data_received..................: 2.1 MB 14 kB/s
+     data_sent......................: 1.8 MB 12 kB/s
+   ✗ dropped_iterations.............: 37     0.245635/s
+     grpc_account_duration..........: avg=8.61ms   med=7ms      p(90)=13ms     p(95)=15.35ms  p(99)=21.87ms  max=247ms   
+     grpc_req_duration..............: avg=8.24ms   med=6.57ms   p(90)=12.97ms  p(95)=15.26ms  p(99)=20.62ms  max=247.03ms
+     http_req_blocked...............: avg=15.12µs  med=6.67µs   p(90)=12.46µs  p(95)=18.31µs  p(99)=278.89µs max=2.1ms   
+     http_req_connecting............: avg=5.02µs   med=0s       p(90)=0s       p(95)=0s       p(99)=180.34µs max=1.35ms  
+     http_req_duration..............: avg=995.76ms med=76.81ms  p(90)=2.04s    p(95)=2.07s    p(99)=5.05s    max=5.09s   
+       { expected_response:true }...: avg=59.63ms  med=24.28ms  p(90)=86.98ms  p(95)=118.84ms p(99)=1.08s    max=1.31s   
+     ✗ { name:authorize }...........: avg=1.65s    med=2.02s    p(90)=2.06s    p(95)=5.02s    p(99)=5.06s    max=5.09s   
+     ✓ { name:capture }.............: avg=34.66ms  med=26.92ms  p(90)=51.99ms  p(95)=61.09ms  p(99)=223.56ms max=310.24ms
+     ✓ { name:tokenize }............: avg=11.97ms  med=9.69ms   p(90)=17.54ms  p(95)=21.5ms   p(99)=38.99ms  max=236.36ms
+   ✗ http_req_failed................: 42.27% 1306 out of 3089
+     http_req_receiving.............: avg=182.85µs med=120.45µs p(90)=315.89µs p(95)=471.18µs p(99)=1.05ms   max=13.08ms 
+     http_req_sending...............: avg=33.37µs  med=27.31µs  p(90)=50.57µs  p(95)=63.92µs  p(99)=105.92µs max=1.49ms  
+     http_req_tls_handshaking.......: avg=0s       med=0s       p(90)=0s       p(95)=0s       p(99)=0s       max=0s      
+     http_req_waiting...............: avg=995.55ms med=76.67ms  p(90)=2.04s    p(95)=2.07s    p(99)=5.05s    max=5.09s   
+     http_reqs......................: 3089   20.507171/s
+     iteration_duration.............: avg=5.89s    med=148.8ms  p(90)=17.27s   p(95)=23.19s   p(99)=23.35s   max=26.34s  
+     iterations.....................: 714    4.740084/s
+     payment_outcomes...............: 714    4.740084/s
+     vus............................: 1      min=1            max=87
+     vus_max........................: 87     min=50           max=87
+
+time="2026-10-31T22:29:21+05:30" level=error msg="thresholds on metrics 'checkout_duration, dropped_iterations, http_req_duration{name:authorize}, http_req_failed' have been crossed"

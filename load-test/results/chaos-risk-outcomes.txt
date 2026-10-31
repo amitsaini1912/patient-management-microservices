@@ -1,0 +1,5 @@
+http     authorize 201                    750
+http     capture 200                      750
+http     login 200                        1
+http     tokenize 201                     750
+outcome  CAPTURED                         750

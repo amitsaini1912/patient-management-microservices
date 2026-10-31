@@ -1,0 +1,8 @@
+http     authorize 201                    534
+http     authorize 503                    1306
+http     capture 200                      534
+http     login 200                        1
+http     tokenize 201                     714
+outcome  CAPTURED                         534
+outcome  authorize_503                    180
+retry    authorize after 503              1126

@@ -121,7 +121,7 @@ public class SimulatorPaymentProcessor implements PaymentProcessor {
                     : new PaymentProcessorException(message, e);
         } catch (RestClientException e) {
             // timeout / connection refused: outcome UNKNOWN. Safe to retry with the same key.
-            throw new PaymentProcessorException(operation + ": no answer from acquirer (" + e.getMessage() + ")", e);
+            throw PaymentProcessorException.noAnswer(operation + ": no answer from acquirer (" + e.getMessage() + ")", e);
         }
     }
 }

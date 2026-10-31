@@ -21,6 +21,7 @@ import java.util.Optional;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.pm.billingservice.db.DatabaseErrors;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -83,6 +84,34 @@ public class IdempotencyFilter extends OncePerRequestFilter {
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+            throws ServletException, IOException {
+        try {
+            filter(request, response, chain);
+        } catch (RuntimeException e) {
+            // Day 23: the key table itself is unreachable (database down / connection died). Nothing ran: 503,
+            // retry with the same key. (Errors inside the controller are answered by ApiExceptionHandler.)
+            if (response.isCommitted() || !DatabaseErrors.isUnavailable(e)) {
+                throw e;
+            }
+            log.warn("idempotency store unavailable: {}", e.getMessage());
+            response.resetBuffer();
+            response.setHeader(HttpHeaders.RETRY_AFTER, "1");
+            ProblemDetail problem = databaseUnavailableProblem();
+            response.setStatus(problem.getStatus());
+            response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+            objectMapper.writeValue(response.getOutputStream(), problem);
+        }
+    }
+
+    /** The 503 body for "database unavailable" (here and in ApiExceptionHandler). */
+    public static ProblemDetail databaseUnavailableProblem() {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE,
+                "temporarily unavailable, retry with the same Idempotency-Key");
+        problem.setTitle("Service temporarily unavailable");
+        return problem;
+    }
+
+    private void filter(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         String key = request.getHeader(HEADER);
         if (key == null || !VALID_KEY.matcher(key).matches()) {
@@ -177,14 +206,14 @@ public class IdempotencyFilter extends OncePerRequestFilter {
         try {
             chain.doFilter(request, cachingResponse);
         } catch (IOException | ServletException | RuntimeException e) {
-            store.release(scope, key, lockedAt); // unhandled error: nothing worth replaying, let the client retry
+            releaseQuietly(scope, key, lockedAt); // unhandled error: nothing worth replaying, let the client retry
             throw e;
         }
 
         int status = cachingResponse.getStatus();
         if (status >= 500 || Boolean.TRUE.equals(request.getAttribute(RETRYABLE_ATTRIBUTE))) {
             // temporary failure: a retry with the SAME key must run again, not replay this error
-            store.release(scope, key, lockedAt);
+            releaseQuietly(scope, key, lockedAt);
         } else {
             // 2xx and deterministic 4xx (400, 404, 409 wrong state, 422) are stored and replayed
             boolean stored = store.complete(scope, key, lockedAt, status, cachingResponse.getContentType(),
@@ -195,6 +224,22 @@ public class IdempotencyFilter extends OncePerRequestFilter {
             }
         }
         cachingResponse.copyBodyToResponse();
+    }
+
+    /**
+     * Release the key; if the database is gone too (Day 23), keep the original answer for the client and let the key
+     * free itself after the lock timeout (a retry meanwhile gets 409 + Retry-After, then takes the key over).
+     */
+    private void releaseQuietly(String scope, String key, Instant lockedAt) {
+        try {
+            store.release(scope, key, lockedAt);
+        } catch (RuntimeException e) {
+            if (!DatabaseErrors.isUnavailable(e)) {
+                throw e;
+            }
+            log.warn("could not release idempotency key {} (database unavailable); it frees itself after {}",
+                    key, properties.lockTimeout());
+        }
     }
 
     private static void replay(IdempotencyRecord record, HttpServletResponse response) throws IOException {

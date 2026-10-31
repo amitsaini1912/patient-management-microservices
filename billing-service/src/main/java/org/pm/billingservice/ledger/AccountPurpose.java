@@ -16,6 +16,8 @@ public enum AccountPurpose {
     HOSPITAL_REVENUE(AccountType.REVENUE),
     /** Money given back; kept apart from revenue so refunds stay visible (a "contra-revenue" account). */
     REFUNDS(AccountType.EXPENSE),
+    /** Money the card network took back from us (Day 19b): a loss, kept apart from refunds. Book currency only. */
+    CHARGEBACKS(AccountType.EXPENSE),
     /** Gains (credit) and losses (debit) from currency conversion. */
     FX_GAIN_LOSS(AccountType.REVENUE),
     /**

@@ -61,6 +61,7 @@ public class PaymentService {
 
     private final PaymentRepository paymentRepository;
     private final RefundRepository refundRepository;
+    private final ChargebackRepository chargebackRepository;
     private final BillingAccountRepository billingAccountRepository;
     private final LedgerService ledgerService;
     private final PaymentProcessor paymentProcessor;
@@ -74,6 +75,7 @@ public class PaymentService {
 
     public PaymentService(PaymentRepository paymentRepository,
                           RefundRepository refundRepository,
+                          ChargebackRepository chargebackRepository,
                           BillingAccountRepository billingAccountRepository,
                           LedgerService ledgerService,
                           PaymentProcessor paymentProcessor,
@@ -86,6 +88,7 @@ public class PaymentService {
                           TransactionTemplate transactionTemplate) {
         this.paymentRepository = paymentRepository;
         this.refundRepository = refundRepository;
+        this.chargebackRepository = chargebackRepository;
         this.billingAccountRepository = billingAccountRepository;
         this.ledgerService = ledgerService;
         this.paymentProcessor = paymentProcessor;
@@ -206,6 +209,7 @@ public class PaymentService {
             return retryOnVersionConflict(() -> transactionTemplate.execute(tx -> {
                 Payment payment = load(paymentId);
                 payment.review(decision, reviewer, note, clock.instant());
+                paymentEvents.reviewed(payment);
                 paymentEvents.failed(payment);
                 return payment;
             }));
@@ -220,6 +224,7 @@ public class PaymentService {
                     return payment; // a concurrent approval recorded this already (same processor key: one hold)
                 }
                 payment.review(decision, reviewer, note, clock.instant());
+                paymentEvents.reviewed(payment);
                 if (result.approved()) {
                     payment.authorize(result.processorReference(), result.networkResponseCode());
                     paymentEvents.authorized(payment);
@@ -316,6 +321,38 @@ public class PaymentService {
         }));
     }
 
+    /**
+     * Records a chargeback the acquirer told us about (ADR 0018): the network already took the money back, so there is
+     * no processor call. Ledger loss + chargeback.created (for the risk engine's labels) in one transaction.
+     * {@code amount} null = everything still held (captured - refunded - charged back).
+     */
+    public Chargeback chargeBack(String idempotencyKey, UUID paymentId, Money amount, String reason, String caseReference) {
+        UUID chargebackId = idFromKey("chargeback", idempotencyKey);
+        Optional<Chargeback> earlier = transactionTemplate.execute(tx -> chargebackRepository.findById(chargebackId));
+        if (earlier.isPresent()) {
+            return earlier.get(); // a previous attempt finished; only its response was lost
+        }
+        return retryOnVersionConflict(() -> transactionTemplate.execute(tx -> {
+            Payment payment = load(paymentId);
+            Money chargebackAmount = amount != null ? amount : payment.getRefundableAmount();
+            payment.chargeBack(chargebackAmount);
+            // today's market rate: the foreign money leaves our position at it (1 for same-currency payments)
+            FxRate rate = fxRates.current(payment.getAmount().currency(), payment.getBookCurrency());
+            Chargeback chargeback = chargebackRepository.save(new Chargeback(chargebackId, paymentId, chargebackAmount,
+                    reason, caseReference, rate.rate(), clock.instant()));
+            postChargeback(payment, chargeback, rate);
+            paymentEvents.chargedBack(payment, chargeback);
+            return chargeback;
+        }));
+    }
+
+    public List<Chargeback> chargebacks(UUID paymentId) {
+        return transactionTemplate.execute(tx -> {
+            load(paymentId);
+            return chargebackRepository.findByPaymentIdOrderByCreatedAt(paymentId);
+        });
+    }
+
     public List<Refund> refunds(UUID paymentId) {
         return transactionTemplate.execute(tx -> {
             load(paymentId); // 404 for an unknown payment, not an empty list
@@ -403,6 +440,34 @@ public class PaymentService {
             } else if (realized.isNegative()) {
                 entry.credit(gainLoss, realized.negate());
             }
+        }
+        ledgerService.post(entry);
+    }
+
+    /**
+     * The acquirer took the money back and owes us that much less; it is a loss, not a refund we chose:
+     *   DR chargebacks (expense) / CR processor receivable
+     * The patient's side and revenue stay as they are (whether the hospital tries to collect again is a separate,
+     * human decision). Foreign currency, e.g. USD 50 charged back, today 85.00:
+     *   INR  DR chargebacks       4,250 / CR FX clearing      4,250   (the loss, at today's rate)
+     *   USD  DR FX clearing          50 / CR processor rcv       50   (the acquirer owes us USD 50 less)
+     */
+    private void postChargeback(Payment payment, Chargeback chargeback, FxRate rate) {
+        claim(payment);
+        Money amount = chargeback.getAmount();
+        Currency book = payment.getBookCurrency();
+        LedgerAccount losses = ledgerService.systemAccount(AccountPurpose.CHARGEBACKS, book);
+        LedgerAccount processorReceivable = ledgerService.systemAccount(AccountPurpose.PROCESSOR_RECEIVABLE, amount.currency());
+        JournalEntry entry = JournalEntry.draft("chargeback on payment " + payment.getId())
+                .source(EntrySource.CHARGEBACK, chargeback.getId());
+        if (!payment.isForeignCurrency()) {
+            entry.debit(losses, amount).credit(processorReceivable, amount);
+        } else {
+            Money atToday = rate.convert(amount);
+            entry.debit(losses, atToday)
+                    .credit(ledgerService.systemAccount(AccountPurpose.FX_CLEARING, book), atToday)
+                    .debit(ledgerService.systemAccount(AccountPurpose.FX_CLEARING, amount.currency()), amount)
+                    .credit(processorReceivable, amount);
         }
         ledgerService.post(entry);
     }

@@ -5,5 +5,7 @@ public enum EntrySource {
     /** source id = payment id */
     CAPTURE,
     /** source id = refund id */
-    REFUND
+    REFUND,
+    /** source id = chargeback id (Day 19b). Not on the settlement report: settlement recon skips it. */
+    CHARGEBACK
 }

@@ -9,6 +9,7 @@ import java.net.ServerSocket;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.AfterEach;
@@ -87,7 +88,9 @@ class HttpRiskEngineClientTest {
         assertThat(facts.get("merchant_id").asText()).isEqualTo("hospital-main");
         assertThat(facts.get("ip").asText()).isEqualTo("203.0.113.9");
         assertThat(facts.get("device_id").asText()).isEqualTo("dev-1");
-        assertThat(facts.get("timestamp").asText()).isEqualTo(payment.getCreatedAt().toString());
+        // ms precision: the same string whether the payment comes from memory (ns) or back from Postgres (us)
+        assertThat(facts.get("timestamp").asText()).isEqualTo(payment.getCreatedAt().truncatedTo(ChronoUnit.MILLIS).toString());
+        assertThat(java.time.Instant.parse(facts.get("timestamp").asText()).getNano() % 1_000_000).isZero();
         assertThat(facts.size()).isEqualTo(11);                                    // the engine rejects extra fields
     }
 

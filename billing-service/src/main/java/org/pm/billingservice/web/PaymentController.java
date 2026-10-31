@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.UUID;
 import org.pm.billingservice.idempotency.IdempotencyFilter;
 import org.pm.billingservice.money.Money;
+import org.pm.billingservice.payment.Chargeback;
 import org.pm.billingservice.payment.Payment;
 import org.pm.billingservice.payment.PaymentService;
 import org.pm.billingservice.payment.Refund;
@@ -67,9 +68,7 @@ public class PaymentController {
     @PostMapping("/{id}/review")
     public PaymentResponse review(@PathVariable UUID id, @Valid @RequestBody ReviewPaymentRequest request,
                                   HttpServletRequest http) {
-        if (!ADMIN.equals(http.getHeader(ROLE_HEADER))) {
-            throw new ForbiddenException("reviewing a held payment needs the ADMIN role");
-        }
+        requireAdmin(http, "reviewing a held payment");
         String user = http.getHeader(IdempotencyFilter.USER_HEADER);
         String reviewer = user == null || user.isBlank() ? "unknown" : user.trim();
         Payment.ReviewDecision decision = request.decision() == ReviewPaymentRequest.Action.APPROVE
@@ -104,6 +103,35 @@ public class PaymentController {
         Refund refund = paymentService.refund(IdempotencyFilter.serviceKey(http, idempotencyKey), id, amount, request == null ? null : request.reason());
         return ResponseEntity.created(URI.create("/payments/" + id + "/refunds/" + refund.getId()))
                 .body(RefundResponse.from(refund));
+    }
+
+    /**
+     * Record a chargeback from the acquirer's dispute notice (Day 19b, ADR 0018). ADMIN only (an ops task).
+     * 201 + Location; a retry with the same Idempotency-Key returns the same chargeback.
+     */
+    @PostMapping("/{id}/chargebacks")
+    public ResponseEntity<ChargebackResponse> chargeBack(@RequestHeader(IdempotencyFilter.HEADER) String idempotencyKey,
+                                                         @PathVariable UUID id,
+                                                         @Valid @RequestBody ChargebackRequest request,
+                                                         HttpServletRequest http) {
+        requireAdmin(http, "recording a chargeback");
+        Money amount = request.amount() == null ? null : Money.parse(request.amount(), request.currency());
+        String caseReference = request.caseReference() == null || request.caseReference().isEmpty() ? null : request.caseReference();
+        Chargeback chargeback = paymentService.chargeBack(IdempotencyFilter.serviceKey(http, idempotencyKey), id, amount,
+                request.reason(), caseReference);
+        return ResponseEntity.created(URI.create("/payments/" + id + "/chargebacks/" + chargeback.getId()))
+                .body(ChargebackResponse.from(chargeback));
+    }
+
+    @GetMapping("/{id}/chargebacks")
+    public List<ChargebackResponse> chargebacks(@PathVariable UUID id) {
+        return paymentService.chargebacks(id).stream().map(ChargebackResponse::from).toList();
+    }
+
+    private static void requireAdmin(HttpServletRequest http, String what) {
+        if (!ADMIN.equals(http.getHeader(ROLE_HEADER))) {
+            throw new ForbiddenException(what + " needs the ADMIN role");
+        }
     }
 
     @GetMapping("/{id}/refunds")

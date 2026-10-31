@@ -75,6 +75,10 @@ public class Payment {
     @Column(name = "refunded_amount_minor", nullable = false)
     private long refundedAmountMinor;
 
+    // Day 19b: taken back by the card network (chargebacks); no longer ours to refund
+    @Column(name = "charged_back_amount_minor", nullable = false)
+    private long chargedBackAmountMinor;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private PaymentStatus status;
@@ -311,6 +315,8 @@ public class Payment {
     public void refund(Money refundAmount) {
         checkRefund(refundAmount);
         this.refundedAmountMinor += refundAmount.amountMinor();
+        // REFUNDED = we gave ALL of it back. If a chargeback took part, the rest refunded is still PARTIALLY_REFUNDED
+        // (refundable 0); the DB checks the same (payment_fully_refunded_matches_status)
         moveTo(refundedAmountMinor == capturedAmountMinor ? PaymentStatus.REFUNDED : PaymentStatus.PARTIALLY_REFUNDED);
     }
 
@@ -320,9 +326,30 @@ public class Payment {
         // Every state a refund can start from (CAPTURED, PARTIALLY_REFUNDED) can reach REFUNDED.
         PaymentStateMachine.requireMove(id, status, PaymentStatus.REFUNDED);
         requirePositiveInOurCurrency(refundAmount);
-        if (Math.addExact(refundedAmountMinor, refundAmount.amountMinor()) > capturedAmountMinor) {
+        if (refundAmount.amountMinor() > getRefundableAmount().amountMinor()) {
             throw new IllegalArgumentException("cannot refund " + refundAmount + ", only "
                     + getRefundableAmount() + " is left to refund");
+        }
+    }
+
+    /**
+     * The card network took {@code amount} back (Day 19b). Only from money we still hold: captured, not yet refunded
+     * or charged back. The status doesn't change (CAPTURED / PARTIALLY_REFUNDED stay what they are).
+     */
+    public void chargeBack(Money amount) {
+        checkChargeBack(amount);
+        this.chargedBackAmountMinor += amount.amountMinor();
+    }
+
+    /** Throws exactly what chargeBack() would: 409 unless captured, 400 for more than is left. */
+    public void checkChargeBack(Money amount) {
+        if (status != PaymentStatus.CAPTURED && status != PaymentStatus.PARTIALLY_REFUNDED) {
+            throw new IllegalPaymentStateException(id, status, "charge back (only captured payments can be)");
+        }
+        requirePositiveInOurCurrency(amount);
+        if (amount.amountMinor() > getRefundableAmount().amountMinor()) {
+            throw new IllegalArgumentException("cannot charge back " + amount + ", only " + getRefundableAmount()
+                    + " is still held (captured - refunded - charged back)");
         }
     }
 
@@ -351,7 +378,10 @@ public class Payment {
     public Money getAmount() { return new Money(amountMinor, currency); }
     public Money getCapturedAmount() { return new Money(capturedAmountMinor, currency); }
     public Money getRefundedAmount() { return new Money(refundedAmountMinor, currency); }
-    public Money getRefundableAmount() { return new Money(capturedAmountMinor - refundedAmountMinor, currency); }
+    public Money getRefundableAmount() {
+        return new Money(capturedAmountMinor - refundedAmountMinor - chargedBackAmountMinor, currency);
+    }
+    public Money getChargedBackAmount() { return new Money(chargedBackAmountMinor, currency); }
     public Currency getBookCurrency() { return bookCurrency; }
     /** The rate locked at authorization (payment currency -> book currency). */
     public FxRate getLockedRate() { return new FxRate(fxRateId, currency, bookCurrency, fxRate, "locked", createdAt); }

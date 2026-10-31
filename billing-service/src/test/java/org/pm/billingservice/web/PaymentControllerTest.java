@@ -2,6 +2,7 @@ package org.pm.billingservice.web;
 
 import org.junit.jupiter.api.Test;
 import org.pm.billingservice.money.Money;
+import org.pm.billingservice.payment.Chargeback;
 import org.pm.billingservice.payment.IllegalPaymentStateException;
 import org.pm.billingservice.payment.Payment;
 import org.pm.billingservice.payment.PaymentNotFoundException;
@@ -308,6 +309,42 @@ class PaymentControllerTest {
                         .contentType(MediaType.APPLICATION_JSON).content("{\"decision\":\"MAYBE\"}"))
                 .andExpect(status().isBadRequest());
         verify(paymentService, never()).review(any(), any(), any(), any());
+    }
+
+    // ---- Day 19b: chargebacks (ADMIN only) ----
+
+    @Test
+    void recordingAChargebackNeedsTheAdminRole() throws Exception {
+        mvc.perform(post("/payments/{id}/chargebacks", UUID.randomUUID()).header("X-User-Role", "USER")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"fraud\"}"))
+                .andExpect(status().isForbidden());
+        verify(paymentService, never()).chargeBack(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void adminRecordsAChargeback() throws Exception {
+        UUID paymentId = UUID.randomUUID();
+        Chargeback chargeback = new Chargeback(UUID.randomUUID(), paymentId, inr(300_00), "fraud", "CASE-9",
+                java.math.BigDecimal.ONE, java.time.Instant.now());
+        when(paymentService.chargeBack(any(), eq(paymentId), eq(inr(300_00)), eq("fraud"), eq("CASE-9"))).thenReturn(chargeback);
+
+        mvc.perform(post("/payments/{id}/chargebacks", paymentId).header("X-User-Role", "ADMIN")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":\"300.00\",\"currency\":\"INR\",\"reason\":\"fraud\",\"caseReference\":\"CASE-9\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(header().string("Location", "/payments/" + paymentId + "/chargebacks/" + chargeback.getId()))
+                .andExpect(jsonPath("$.amount").value("300.00"))
+                .andExpect(jsonPath("$.reason").value("fraud"));
+    }
+
+    @Test
+    void aChargebackNeedsAKnownReason() throws Exception {
+        for (String body : new String[] {"{}", "{\"reason\":\"Fraud\"}", "{\"reason\":\"4111111111111111\"}",
+                "{\"reason\":\"fraud\",\"amount\":\"1.00\"}"}) {
+            mvc.perform(post("/payments/{id}/chargebacks", UUID.randomUUID()).header("X-User-Role", "ADMIN")
+                    .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isBadRequest());
+        }
+        verify(paymentService, never()).chargeBack(any(), any(), any(), any(), any());
     }
 
     /** Every POST here moves money, so every POST carries an Idempotency-Key. */

@@ -14,6 +14,13 @@ public class IllegalPaymentStateException extends RuntimeException {
         this.to = to;
     }
 
+    /** Not a status move, but an operation the current status doesn't allow (e.g. a chargeback on an uncaptured payment). */
+    public IllegalPaymentStateException(UUID paymentId, PaymentStatus status, String operation) {
+        super("payment " + paymentId + " is " + status + ": cannot " + operation);
+        this.from = status;
+        this.to = status;
+    }
+
     public PaymentStatus getFrom() { return from; }
     public PaymentStatus getTo() { return to; }
 }

@@ -113,7 +113,8 @@ class RiskCheckIntegrationTest {
     }
 
     private List<String> events(Payment payment) {
-        return jdbc.queryForList("SELECT event_type FROM outbox_event WHERE aggregate_id = ? ORDER BY created_at",
+        // payment.events only (Day 19b adds JSON events for the risk engine on their own topics)
+        return jdbc.queryForList("SELECT event_type FROM outbox_event WHERE aggregate_id = ? AND topic = 'payment.events' ORDER BY created_at",
                 String.class, payment.getId());
     }
 

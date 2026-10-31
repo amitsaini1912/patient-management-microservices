@@ -21,4 +21,19 @@ public class OutboxConfig {
                                 @Value("${billing.events.replicas:1}") short replicas) {
         return TopicBuilder.name(topic).partitions(partitions).replicas(replicas).build();
     }
+
+    /** Day 19b: JSON events for the risk engine (ADR 0018), keyed by payment id like payment.events. */
+    @Bean
+    NewTopic chargebackTopic(@Value("${billing.events.chargeback-topic}") String topic,
+                             @Value("${billing.events.partitions:3}") int partitions,
+                             @Value("${billing.events.replicas:1}") short replicas) {
+        return TopicBuilder.name(topic).partitions(partitions).replicas(replicas).build();
+    }
+
+    @Bean
+    NewTopic outcomeTopic(@Value("${billing.events.outcome-topic}") String topic,
+                          @Value("${billing.events.partitions:3}") int partitions,
+                          @Value("${billing.events.replicas:1}") short replicas) {
+        return TopicBuilder.name(topic).partitions(partitions).replicas(replicas).build();
+    }
 }

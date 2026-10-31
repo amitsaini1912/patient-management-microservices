@@ -12,6 +12,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.time.Duration;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import org.pm.billingservice.payment.Payment;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -88,7 +89,10 @@ public class HttpRiskEngineClient implements RiskEngineClient {
         Facts facts = new Facts(payment.getId().toString(), payment.getAmount().amountMinor(),
                 payment.getAmount().currency().getCurrencyCode(), payment.getCardToken(), payment.getCardFingerprint(),
                 payment.getCardLast4(), payment.getBillingAccountId().toString(), merchantId,
-                payment.getRiskClientIp(), payment.getRiskDeviceId(), payment.getCreatedAt().toString());
+                payment.getRiskClientIp(), payment.getRiskDeviceId(),
+                // ms precision: a retry reloads the payment from Postgres (microseconds) - the string must be the
+                // same as on the first attempt, or the engine sees different facts for the same id (409)
+                payment.getCreatedAt().truncatedTo(ChronoUnit.MILLIS).toString());
         try {
             return json.writeValueAsBytes(facts);
         } catch (JsonProcessingException e) {

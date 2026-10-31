@@ -17,6 +17,8 @@ public record PaymentResponse(
         String amount,
         String capturedAmount,
         String refundedAmount,
+        // Day 19b: taken back by chargebacks (no longer refundable)
+        String chargedBackAmount,
         String failureReason,
         // Day 11: the card network's answer (ISO 8583 field 39) and whether a FAILED payment is worth a NEW attempt
         // (new Idempotency-Key; the same key returns this payment again)
@@ -50,6 +52,7 @@ public record PaymentResponse(
                 decimal(payment.getAmount()),
                 decimal(payment.getCapturedAmount()),
                 decimal(payment.getRefundedAmount()),
+                decimal(payment.getChargedBackAmount()),
                 payment.getFailureReason(),
                 payment.getNetworkResponseCode(),
                 payment.isRetryable(),

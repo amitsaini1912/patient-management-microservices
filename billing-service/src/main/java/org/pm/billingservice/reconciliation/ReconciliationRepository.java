@@ -31,7 +31,7 @@ public class ReconciliationRepository {
                         JOIN entry_line el ON el.journal_entry_id = je.id
                         JOIN ledger_account la ON la.id = el.ledger_account_id AND la.purpose = 'PROCESSOR_RECEIVABLE'
                         LEFT JOIN refund r ON je.source_type = 'REFUND' AND r.id = je.source_id
-                        WHERE je.source_type IS NOT NULL AND je.posted_at >= ? AND je.posted_at < ?""",
+                        WHERE je.source_type IN ('CAPTURE', 'REFUND') AND je.posted_at >= ? AND je.posted_at < ?""",
                 (rs, i) -> new LedgerRow(rs.getString(1), rs.getObject(2, UUID.class), rs.getString(3), rs.getLong(4),
                         rs.getString(5), rs.getTimestamp(6).toInstant()),
                 Timestamp.from(from), Timestamp.from(to));

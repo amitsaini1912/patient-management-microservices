@@ -131,8 +131,10 @@ class PaymentRepositoryIntegrationTest {
                 .rootCause().hasMessageContaining("payment_captured_matches_status");
         assertThatThrownBy(() -> insertRaw("CAPTURED", 1_000_00, 1_000_01, 0))
                 .rootCause().hasMessageContaining("payment_captured_within_authorized");
+        // two CHECKs refuse this since Day 19b (refunded <= captured, and refunded + charged back <= captured);
+        // Postgres names whichever it evaluates first
         assertThatThrownBy(() -> insertRaw("PARTIALLY_REFUNDED", 1_000_00, 500_00, 600_00))
-                .rootCause().hasMessageContaining("payment_refunded_within_captured");
+                .rootCause().hasMessageMatching("(?s).*payment_refunded_(and_charged_back_)?within_captured.*");
         assertThatThrownBy(() -> insertRaw("PARTIALLY_REFUNDED", 1_000_00, 500_00, 500_00))
                 .rootCause().hasMessageContaining("payment_fully_refunded_matches_status");
     }

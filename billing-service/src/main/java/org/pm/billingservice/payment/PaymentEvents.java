@@ -1,8 +1,13 @@
 package org.pm.billingservice.payment;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.google.protobuf.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -15,6 +20,9 @@ import payment.events.PaymentEvent;
 
 /**
  * Turns payment changes into {@link PaymentEvent}s in the outbox AND rows in the audit log (Day 13, ADR 0016).
+ * Day 19b (ADR 0018): two JSON events for the risk engine go through the same outbox - `chargeback.created` and
+ * `payment.outcome` (captured / review approved / review rejected) - per the schemas in razorpay-risk-agent's
+ * docs/contracts/. Key = payment id = the risk engine's transaction_id.
  * Every method must be called inside the transaction that makes the change (OutboxWriter and AuditLog enforce it),
  * after the change is applied to {@code payment}. Every payment change goes through here, so nothing escapes the audit.
  */
@@ -23,17 +31,33 @@ public class PaymentEvents {
 
     static final int SCHEMA_VERSION = 1;
 
+    @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+    record ChargebackCreated(String eventId, String transactionId, long amountMinor, String currency, String reason,
+                             String createdAt, int schemaVersion) {}
+
+    @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+    record PaymentOutcome(String eventId, String transactionId, String outcome, long amountMinor, String currency,
+                          String occurredAt, int schemaVersion) {}
+
     private final OutboxWriter outbox;
     private final AuditLog audit;
     private final Clock clock;
+    private final ObjectMapper json;
     private final String topic;
+    private final String chargebackTopic;
+    private final String outcomeTopic;
 
-    public PaymentEvents(OutboxWriter outbox, AuditLog audit, Clock clock,
-                         @Value("${billing.events.payment-topic}") String topic) {
+    public PaymentEvents(OutboxWriter outbox, AuditLog audit, Clock clock, ObjectMapper json,
+                         @Value("${billing.events.payment-topic}") String topic,
+                         @Value("${billing.events.chargeback-topic}") String chargebackTopic,
+                         @Value("${billing.events.outcome-topic}") String outcomeTopic) {
         this.outbox = outbox;
         this.audit = audit;
         this.clock = clock;
+        this.json = json;
         this.topic = topic;
+        this.chargebackTopic = chargebackTopic;
+        this.outcomeTopic = outcomeTopic;
     }
 
     void authorized(Payment payment) {
@@ -54,6 +78,49 @@ public class PaymentEvents {
 
     void captured(Payment payment) {
         append("payment.captured", payment, event -> {}, Map.of());
+        outcome(payment, "captured", payment.getCapturedAmount().amountMinor());
+    }
+
+    /** A person decided on a held payment (the authorized/failed event that follows is separate). */
+    void reviewed(Payment payment) {
+        outcome(payment, payment.getReviewDecision() == Payment.ReviewDecision.APPROVED ? "review_approved" : "review_rejected",
+                payment.getAmount().amountMinor());
+    }
+
+    void chargedBack(Payment payment, Chargeback chargeback) {
+        UUID eventId = UUID.randomUUID();
+        ChargebackCreated event = new ChargebackCreated(eventId.toString(), payment.getId().toString(),
+                chargeback.getAmount().amountMinor(), chargeback.getAmount().currency().getCurrencyCode(),
+                chargeback.getReason(), iso(chargeback.getCreatedAt()), SCHEMA_VERSION);
+        outbox.append(eventId, "payment", payment.getId(), "chargeback.created", chargebackTopic, payment.getId().toString(),
+                bytes(event));
+        Map<String, Object> extras = new LinkedHashMap<>();
+        extras.put("chargeback_id", chargeback.getId().toString());
+        extras.put("chargeback_amount_minor", chargeback.getAmount().amountMinor());
+        extras.put("chargeback_reason", chargeback.getReason());
+        extras.put("case_reference", chargeback.getCaseReference());
+        audit.append("payment.charged_back", "payment", payment.getId().toString(), auditDetails(eventId, payment, extras));
+    }
+
+    private void outcome(Payment payment, String outcome, long amountMinor) {
+        UUID eventId = UUID.randomUUID();
+        PaymentOutcome event = new PaymentOutcome(eventId.toString(), payment.getId().toString(), outcome, amountMinor,
+                payment.getAmount().currency().getCurrencyCode(), iso(clock.instant()), SCHEMA_VERSION);
+        outbox.append(eventId, "payment", payment.getId(), "payment.outcome", outcomeTopic, payment.getId().toString(),
+                bytes(event));
+    }
+
+    /** Millisecond precision, UTC: Java has nanoseconds, Postgres keeps microseconds, Python parses up to micro. */
+    static String iso(Instant instant) {
+        return instant.truncatedTo(ChronoUnit.MILLIS).toString();
+    }
+
+    private byte[] bytes(Object event) {
+        try {
+            return json.writeValueAsBytes(event);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     void voided(Payment payment) {
@@ -103,6 +170,7 @@ public class PaymentEvents {
         details.put("amount_minor", payment.getAmount().amountMinor());
         details.put("captured_minor", payment.getCapturedAmount().amountMinor());
         details.put("refunded_minor", payment.getRefundedAmount().amountMinor());
+        details.put("charged_back_minor", payment.getChargedBackAmount().amountMinor());
         details.put("failure_reason", payment.getFailureReason());
         details.put("network_response_code", payment.getNetworkResponseCode());
         details.put("processor_reference", payment.getProcessorReference());

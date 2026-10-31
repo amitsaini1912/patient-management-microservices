@@ -22,7 +22,7 @@ import org.pm.billingservice.payment.Payment;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** Billing's side of the POST /v2/assess contract (razorpay-risk-agent ADR 0001), against a stub engine. */
+/** Billing's side of the POST /v2/assess contract (payment-risk-engine ADR 0001), against a stub engine. */
 class HttpRiskEngineClientTest {
 
     record Call(String path, String apiKey, String body) {}

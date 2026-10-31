@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-10-31
 - Builds on: ADR 0008 (outbox), 0011 (reconciliation), 0012 (multi-currency), 0017 (risk check).
-  Other side: razorpay-risk-agent ADR 0005 (labels) and 0006 (payment outcomes), schemas in its `docs/contracts/`.
+  Other side: payment-risk-engine ADR 0005 (labels) and 0006 (payment outcomes), schemas in its `docs/contracts/`.
 
 ## Context
 - billing had no chargebacks at all: a disputed payment kept looking fully earned, and the risk engine never learned

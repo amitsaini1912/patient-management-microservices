@@ -1,371 +1,299 @@
 <div align="center">
 
-# 🏥 Patient Management — Microservices Platform
+# Hospital Payments Platform
 
-**A production-style, event-driven healthcare backend built with Spring Boot microservices, gRPC, Kafka, and PostgreSQL — deployed on Kubernetes with a full CI/CD pipeline and observability stack.**
+**Card payments for a hospital, built like a payment company would: a double-entry ledger, idempotent APIs, a
+card vault, an ISO 8583-style card network simulator, a real-time risk check, reconciliation, and an audit trail —
+load-tested and chaos-tested, with every number measured.**
 
 [![CI](https://github.com/amitsaini1912/patient-management-microservices/actions/workflows/ci.yml/badge.svg)](https://github.com/amitsaini1912/patient-management-microservices/actions/workflows/ci.yml)
 ![Java](https://img.shields.io/badge/Java-21-orange?logo=openjdk&logoColor=white)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4-6DB33F?logo=springboot&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
-![Kafka](https://img.shields.io/badge/Apache%20Kafka-event--driven-231F20?logo=apachekafka&logoColor=white)
-![Kubernetes](https://img.shields.io/badge/Kubernetes-deployed-326CE5?logo=kubernetes&logoColor=white)
-![Docker](https://img.shields.io/badge/Docker-containerized-2496ED?logo=docker&logoColor=white)
+![Kafka](https://img.shields.io/badge/Kafka-3.9-231F20?logo=apachekafka&logoColor=white)
 
 </div>
 
----
+The risk engine lives in its own repo: [payment-risk-engine](https://github.com/amitsaini1912/payment-risk-engine)
+(Python, FastAPI, scikit-learn).
 
-## 📑 Table of Contents
+## The problem
 
-- [What is this?](#-what-is-this)
-- [System Architecture](#-system-architecture)
-- [How a Request Flows](#-how-a-request-flows)
-- [The Services](#-the-services)
-- [Tech Stack](#-tech-stack)
-- [The Analytics Layer (SQL Deep-Dive)](#-the-analytics-layer-sql-deep-dive)
-- [Infrastructure & DevOps](#-infrastructure--devops)
-- [Getting Started](#-getting-started)
-- [API Overview](#-api-overview)
-- [What I Learned](#-what-i-learned)
-- [Roadmap / What's Next](#-roadmap--whats-next)
-- [Project Structure](#-project-structure)
+A patient pays a hospital bill by card. Getting that right is harder than calling a payment API:
 
----
+- **Money must never be created, lost or moved twice**, even when the client retries, two requests race, the
+  acquirer times out, or the process dies between "the bank approved it" and "we wrote it down".
+- **Every rupee must be explainable**: which account it sits in, why it moved, and whether our books agree with the
+  acquirer's settlement report.
+- **Card numbers must not spread**: one service may see them, the rest only see tokens.
+- **Fraud must be stopped before the card is charged**, without letting a slow fraud check take payments down.
 
-## 🎯 What is this?
+## What it does — and the evidence
 
-This is a **backend platform for managing patients, billing, and healthcare analytics**, built the way real systems are built: as a set of small, independently deployable services that talk to each other over **REST, gRPC, and Kafka events**.
-
-It started as a learning project and grew into a full walkthrough of modern backend engineering — from writing the first integration test to running the whole thing on Kubernetes with persistent storage, circuit breakers, caching, monitoring, and an analytics service that answers real reporting questions with SQL window functions.
-
-**In one sentence:** a client registers a patient → the patient service saves it, calls the billing service over gRPC, and publishes a Kafka event → the analytics service consumes that event and builds a read-optimized reporting store.
-
----
-
-## 🏗 System Architecture
-
-```mermaid
-flowchart TB
-    Client([👤 Client / Frontend])
-
-    subgraph Edge["🌐 Edge"]
-        GW["API Gateway<br/>Spring Cloud Gateway<br/>:4004"]
-    end
-
-    subgraph Core["⚙️ Core Services"]
-        AUTH["Auth Service<br/>Spring Security + JWT<br/>:4005"]
-        PAT["Patient Service<br/>REST • :4000"]
-        BILL["Billing Service<br/>gRPC :9001 • REST :4001"]
-        ANALYTIC["Analytic Service<br/>SQL Reporting<br/>:4002"]
-    end
-
-    subgraph Messaging["📨 Messaging"]
-        KAFKA[["Apache Kafka<br/>topic: patient"]]
-    end
-
-    subgraph Data["🗄️ Data Stores"]
-        AUTHDB[("Auth DB<br/>PostgreSQL")]
-        PATDB[("Patient DB<br/>PostgreSQL")]
-        ANADB[("Analytics DB<br/>PostgreSQL")]
-        REDIS[("Redis<br/>cache")]
-    end
-
-    Client --> GW
-    GW -->|/auth/**| AUTH
-    GW -->|/api/patients/** + JWT check| PAT
-
-    AUTH --> AUTHDB
-    PAT --> PATDB
-    PAT -->|cache reads| REDIS
-    PAT -->|gRPC: createBillingAccount| BILL
-    PAT -->|publish PatientEvent| KAFKA
-    KAFKA -->|consume| ANALYTIC
-    ANALYTIC --> ANADB
-
-    GW -.->|validate token| AUTH
-
-    classDef svc fill:#6DB33F,stroke:#2b5c1a,color:#fff;
-    classDef db fill:#4169E1,stroke:#1e3a8a,color:#fff;
-    classDef edge fill:#f59e0b,stroke:#92400e,color:#fff;
-    classDef msg fill:#231F20,stroke:#000,color:#fff;
-    class AUTH,PAT,BILL,ANALYTIC svc;
-    class AUTHDB,PATDB,ANADB,REDIS db;
-    class GW edge;
-    class KAFKA msg;
-```
-
-**Key design decisions**
-
-| Concern | Choice | Why |
+| Guarantee | How | Evidence |
 |---|---|---|
-| Synchronous, low-latency internal call | **gRPC** (patient → billing) | Strongly-typed contract via Protobuf, fast binary transport |
-| Asynchronous, fire-and-forget | **Kafka** (patient → analytics) | Decouples services; analytics can be down without blocking patient creation |
-| Public entry point | **API Gateway** | One door, central routing, JWT validation before requests reach services |
-| Read-heavy analytics | **Separate OLAP-style DB** | Reporting queries never touch (or slow down) the transactional patient DB |
-| Resilience | **Resilience4j circuit breaker** | Patient service degrades gracefully if billing is unavailable |
+| Money is never double-moved | `Idempotency-Key` on every money-moving POST; deterministic acquirer keys; row lock when recording | 120 concurrent refunds on one payment, retry storms: acquirer called once per step (`CorrectnessIntegrationTest`, ADR 0021) |
+| Books always balance | double-entry ledger, append-only, enforced by Postgres constraints + triggers | every entry and the whole ledger sum to 0 per currency, checked after storms and chaos |
+| Our records match the acquirer's | daily reconciliation against the settlement report | ADR 0011, `ReconciliationIntegrationTest` |
+| No event lost, none duplicated | transactional outbox → Kafka; consumers deduplicate | Kafka down 60 s under load: 936 events held, sent within 5 s of recovery ([CHAOS](docs/CHAOS.md)) |
+| Card numbers stay in one place | card-vault (AES-256-GCM, key versions, HMAC fingerprints); billing sees tokens only | PCI log-masking tests; 0 card numbers in any log (Day 20b) |
+| Fraud checked before the network | risk engine within a 300 ms budget, retry, circuit breaker, safe fallback rules | engine paused under load: 0 errors, breaker opened and closed by itself ([CHAOS](docs/CHAOS.md)) |
+| History can't be rewritten | HMAC hash-chained audit log, appended in the same transaction | `GET /audit/verify`; tampering tests (ADR 0016) |
+| Tells clients the truth when something breaks | 503 + Retry-After for temporary failures, 504 on timeouts; never 500 for an outage | Toxiproxy + live chaos ([CHAOS](docs/CHAOS.md), ADR 0023) |
 
----
+Measured on one laptop (Intel i5-13500H), whole path through the gateway ([PERFORMANCE](docs/PERFORMANCE.md)):
+**8,324 checkouts, 0 errors, p95 93 ms**; every payment risk-checked up to **30 checkouts/s** (one risk-engine
+worker), after finding and fixing the bottleneck (15 → 30/s).
 
-## 🔄 How a Request Flows
-
-Creating a patient touches **three services and two data stores** — synchronously *and* asynchronously:
-
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant GW as API Gateway
-    participant A as Auth Service
-    participant P as Patient Service
-    participant B as Billing Service
-    participant K as Kafka
-    participant AN as Analytic Service
-
-    C->>GW: POST /api/patients (JWT)
-    GW->>A: validate JWT
-    A-->>GW: 200 OK
-    GW->>P: forward request
-    P->>P: save patient (PostgreSQL)
-    P->>B: gRPC createBillingAccount()
-    B-->>P: accountId, status=ACTIVE
-    P-)K: publish PatientEvent (protobuf)
-    P-->>GW: 201 Created
-    GW-->>C: 201 Created
-    Note over K,AN: asynchronous
-    K-)AN: PatientEvent
-    AN->>AN: upsert into analytics store
-```
-
-The **solid arrows are synchronous** (the client waits). The **dashed/`-)` arrows are asynchronous** — the client already got its `201` before analytics even sees the event. That's the whole point of the Kafka split.
-
----
-
-## 🧩 The Services
-
-| Service | Port | Responsibility | Highlights |
-|---|---|---|---|
-| **api-gateway** | `4004` | Single entry point, routing, auth enforcement | Spring Cloud Gateway (reactive), custom `JwtValidation` filter, path rewriting for aggregated Swagger docs |
-| **auth-service** | `4005` | Login, JWT issuing & validation | Spring Security, JJWT, PostgreSQL-backed users |
-| **patient-service** | `4000` | Patient CRUD — the heart of the system | REST + validation, Redis caching, **gRPC client** to billing, **Kafka producer**, Resilience4j **circuit breaker**, Flyway migrations, Actuator/Prometheus metrics, OpenAPI docs |
-| **billing-service** | `4001` REST / `9001` gRPC | Billing accounts | **gRPC server** implementing the Protobuf contract |
-| **analytic-service** | `4002` | Healthcare reporting & analytics | **Kafka consumer**, own PostgreSQL analytics store, **SQL window-function reports**, N+1 vs `JOIN FETCH` demo |
-
----
-
-## 🛠 Tech Stack
-
-**Languages & Frameworks**
-`Java 21` · `Spring Boot 3.4` · `Spring Cloud Gateway` · `Spring Security` · `Spring Data JPA / Hibernate`
-
-**Communication**
-`REST` · `gRPC + Protocol Buffers` · `Apache Kafka` (protobuf-serialized events)
-
-**Data**
-`PostgreSQL 16` · `Flyway` (versioned schema migrations) · `Redis` (caching) · `H2` (test databases)
-
-**Resilience & Observability**
-`Resilience4j` (circuit breaker) · `Spring Boot Actuator` · `Micrometer` · `Prometheus` · `Grafana`
-
-**Infrastructure & DevOps**
-`Docker` · `Kubernetes` (Deployments, StatefulSet, PVCs, Secrets) · `GitHub Actions` (CI/CD)
-
-> ☁️ AWS infrastructure-as-code (CDK on LocalStack) also lives in the repo but is a **work in progress** — see [In Progress & Actively Learning](#-in-progress--actively-learning).
-
-**Testing**
-`JUnit 5` · `Testcontainers` (real PostgreSQL in tests) · `Spring Boot Test` · integration test suite
-
----
-
-## 📊 The Analytics Layer (SQL Deep-Dive)
-
-The `analytic-service` is where the SQL lives. It keeps its own read-optimized store (`patient` → `visit` → `claim`) and answers real reporting questions.
-
-```mermaid
-erDiagram
-    PATIENT ||--o{ VISIT : "has"
-    VISIT   ||--o{ CLAIM : "generates"
-
-    PATIENT {
-        uuid id PK
-        varchar name
-        varchar email
-    }
-    VISIT {
-        uuid id PK
-        uuid patient_id FK
-        date visit_date
-        varchar department
-    }
-    CLAIM {
-        uuid id PK
-        uuid visit_id FK
-        numeric claim_amount
-        numeric paid_amount
-        varchar status
-    }
-```
-
-**Reporting endpoints** (`/analytics/...`) and the SQL technique each one demonstrates:
-
-| Endpoint | Question it answers | SQL technique |
-|---|---|---|
-| `GET /analytics/revenue-by-department` | Which department has the most unrecovered revenue? | `JOIN` + `GROUP BY` + aggregate math |
-| `GET /analytics/denial-rate-by-department` | Which departments deny the most claims? | Conditional aggregation (`SUM(CASE WHEN ...)`) |
-| `GET /analytics/revenue-ranking` | Rank departments by revenue | **`RANK() OVER (...)` window function** |
-| `GET /analytics/monthly-trend` | Running total & month-over-month change | **CTE + `SUM() OVER`, `LAG()`, `DATE_TRUNC`** |
-| `GET /analytics/claims-naive/{status}` | *(demo)* the **N+1 query problem** | lazy loading — one query per claim |
-| `GET /analytics/claims-fetch/{status}` | *(demo)* the **fix** | `JOIN FETCH` — one query total |
-
-Schema is built and versioned with **Flyway** (`V1` tables → `V2` seed → `V3` composite index on `visit(department, visit_date)` — equality column first, range column second, so the index can seek then range-scan).
-
----
-
-## 🚀 Infrastructure & DevOps
-
-### CI/CD — GitHub Actions
-Every push and PR runs a **matrix build**: all five services are compiled and tested in parallel (`./mvnw -B verify`). On merge to `main`, each service's Docker image is built and pushed to Docker Hub, tagged with both `latest` and the commit SHA.
+## Architecture
 
 ```mermaid
 flowchart LR
-    push[Push / PR] --> test{{"Matrix: build + test<br/>all 5 services"}}
-    test -->|main only| img["Build & push<br/>Docker images"]
-    img --> hub[(Docker Hub)]
+    client([Patient app / k6]) -->|HTTPS + JWT| gw[api-gateway :4004<br/>JWT, rate limits, timeouts]
+    gw -->|/auth| auth[auth-service :4005]
+    gw -->|POST /api/cards| vault[card-vault :4020<br/>tokens, AES-256-GCM]
+    gw -->|/api/payments| billing[billing-service :4001<br/>payments, ledger, outbox, audit]
+    patient[patient-service :4000] -->|gRPC CreateBillingAccount| billing
+    billing -->|token metadata| vault
+    billing -->|POST /v2/assess, 300 ms| risk[payment-risk-engine :8000<br/>rules + ML model]
+    billing -->|authorize / capture / refund| sim[payment-network-simulator :4010<br/>acquirer + card network + issuer]
+    sim -->|detokenize| vault
+    sim -.->|signed webhooks| billing
+    billing -->|outbox relay| kafka[(Kafka)]
+    kafka --> analytics[analytic-service :4002]
+    kafka -->|chargebacks, outcomes = labels| risk
+    billing --- bdb[(Postgres: billing)]
+    vault --- vdb[(Postgres: vault)]
+    gw --- redis[(Redis: rate limits)]
+    billing --- redis
+    risk --- redis2[(Redis: velocity)]
 ```
 
-### Kubernetes
-The full stack runs on Kubernetes:
-- **Deployments** for every service, **Services** for internal networking
-- **StatefulSet + PersistentVolumeClaims** for the patient database, so data survives pod restarts
-- **Secrets** for credentials, plus Kafka and Redis workloads
-
-### Monitoring
-`monitoring/prometheus.yml` scrapes the services' Actuator/Micrometer endpoints; metrics are visualized in **Grafana** (circuit-breaker state, request metrics, JVM health).
-
----
-
-## 🏁 Getting Started
-
-### Prerequisites
-- **JDK 21**
-- **Docker** (for running dependencies and Testcontainers-based tests)
-- **Maven** (each service ships the `./mvnw` wrapper — no local install needed)
-
-### Build & test a single service
-```bash
-cd patient-service
-./mvnw -B verify          # compiles + runs tests (spins up PostgreSQL via Testcontainers)
-```
-
-> **Note:** tests are self-contained. `patient-service` uses Testcontainers (real PostgreSQL), while `analytic-service` and `auth-service` boot their context on in-memory **H2**, so CI needs no external database.
-
-### Run the whole stack
-- **Locally:** each service has a `Dockerfile`; build the images and run them alongside PostgreSQL, Redis, and Kafka.
-- **On Kubernetes:** apply the manifests in [`k8s/`](k8s/):
-  ```bash
-  kubectl apply -f k8s/
-  ```
-
-### Explore the APIs
-Aggregated Swagger UI is exposed through the gateway (`/api-docs/patients`, `/api-docs/auth`). Sample requests live in [`api-requests/`](api-requests/) and [`grpc-requests/`](grpc-requests/).
-
----
-
-## 📡 API Overview
-
-| Via Gateway (`:4004`) | Method | Description | Auth |
-|---|---|---|---|
-| `/auth/login` | `POST` | Authenticate, receive a JWT | ❌ |
-| `/api/patients` | `GET` / `POST` | List / create patients | ✅ JWT |
-| `/api/patients/{id}` | `PUT` / `DELETE` | Update / delete a patient | ✅ JWT |
-
-> The `analytic-service` reporting endpoints (`/analytics/*`, see the SQL table above) are served **directly by the service on `:4002`** and are not currently exposed through the gateway.
-
----
-
-## 🎓 What I Learned
-
-This project doubles as a structured learning journal — each "day" added one real capability and is written up in [`learning-notes/`](learning-notes/):
-
-| Day | Topic | What it added to the project |
+| Service | What it owns | Port |
 |---|---|---|
-| 1 | **Testing** | Integration tests with Testcontainers (real PostgreSQL, not mocks) |
-| 2 | **Redis Caching** | Cached patient reads; learned cache-aside & TTLs |
-| 3 | **Resilience4j Circuit Breaker** | Patient service survives a down billing service |
-| 4 | **Prometheus + Grafana** | Metrics, dashboards, and health visibility |
-| 5 | **GitHub Actions CI/CD** | Automated matrix build/test + Docker image publishing |
-| 6 | **Kubernetes** | Deployed the full stack to a cluster |
-| 7 | **K8s Persistent Storage** | StatefulSet + PVCs so DB data survives restarts |
-| 8 | **Database Schema + Flyway** | Versioned migrations; visit + claim schema |
-| 9 | **Analytics SQL** | A real analytics DB with SQL reporting endpoints |
-| 10 | **Window Functions + Indexing** | `RANK()`, `LAG()`, running totals, composite indexes |
-| 11 | **Transactions, Dual-Write & N+1** | The N+1 problem and its `JOIN FETCH` fix |
+| **billing-service** | payments (state machine), refunds, chargebacks, double-entry ledger, FX, idempotency, outbox, audit log, reconciliation | 4001 (HTTP), 9001 (gRPC) |
+| **card-vault** | card numbers (encrypted), tokens, fingerprints; the only place a PAN is stored | 4020 |
+| **payment-network-simulator** | our acquirer: ISO 8583-style 0100/0400 to a card network and an issuer with balances and holds; settlement reports; signed webhooks | 4010 |
+| **api-gateway** | JWT validation (via auth-service), per-user rate limits, identity headers, timeouts | 4004 |
+| **auth-service** | login, JWT | 4005 |
+| **patient-service** | patients; creates the billing account over gRPC | 4000 |
+| **analytic-service** | consumes payment events (idempotent consumer, dead-letter topics) | 4002 |
+| [payment-risk-engine](https://github.com/amitsaini1912/payment-risk-engine) | `/v2/assess`: velocity (Redis), rules with reason codes, ML score; learns from chargebacks | 8000 |
 
-**The big ideas I can now explain and defend:** why gRPC *and* Kafka (not just one), how a circuit breaker actually protects a caller, why analytics gets its own database, how a composite index's column order matters, and how to read a slow query and fix an N+1.
+### Payment states
 
----
-
-## 🚧 In Progress & Actively Learning
-
-Two areas are **intentionally marked "in progress."** I've started them, but I'm still deepening my understanding — so rather than present them as finished, production-grade work, I'm being upfront about where they stand.
-
-### ☁️ AWS Infrastructure-as-Code (CDK + LocalStack)
-`infrastructure/` contains an AWS **CDK** stack (written in Java) that models cloud infrastructure — a VPC, **ECS Fargate** services, **RDS** PostgreSQL instances, an **MSK** (managed Kafka) cluster, and Route 53 health checks — and runs it against **LocalStack**, a mock AWS that runs on your own machine, so there's no real cloud account or cost involved.
-
-> **What it means in plain terms:** instead of clicking around the AWS console to create servers and databases, you describe them *in code*; the CDK turns that code into the actual cloud resources. LocalStack lets you test all of that locally first.
->
-> **Status:** the stack exists and synthesizes. I'm currently working through *why* each piece is there and how it maps to real AWS before deploying to a live account — so I'm keeping it out of the "done" list until I can explain every part of it.
-
-### 📤 Transactional Outbox Pattern
-Today, `patient-service` does a **dual write**: in one flow it saves the patient to PostgreSQL **and** publishes a Kafka event. If the app crashes *between* those two steps, the database and Kafka drift out of sync — the patient exists but the event never fired (or vice-versa).
-
-> **The fix:** the outbox pattern writes the event into an `outbox` table **inside the same database transaction** as the patient. Either both commit or neither does. A separate relay then reads the outbox and publishes to Kafka — guaranteeing the event is sent **if and only if** the data was committed.
->
-> **Status:** designed, not yet built. This is my planned replacement for the current dual-write (which I document honestly in the Day 11 notes).
-
----
-
-## 🗺 Roadmap / What's Next
-
-Planned additions (in rough priority order):
-
-- [ ] **Transactional outbox** to replace the current dual-write (see [In Progress](#-in-progress--actively-learning))
-- [ ] **Testcontainers integration test for `analytic-service`** — run the window-function queries against real PostgreSQL 16 (H2 can't validate Postgres-specific SQL)
-- [ ] **Persist real billing logic** in `billing-service` (currently a stubbed gRPC response) with its own database
-- [ ] **Event-driven ETL** — stream `visit`/`claim` changes into the analytics store via Kafka instead of seed data
-- [ ] **Auth hardening** — refresh tokens and role-based access control (RBAC)
-- [ ] **Distributed tracing** — Grafana Tempo / OpenTelemetry across the gRPC + Kafka hops
-- [ ] **Centralized logging** — Loki or ELK for cross-service log correlation
-- [ ] **Gateway rate limiting** and request quotas
-- [ ] **Deploy to real AWS** — once the CDK stack is fully understood, promote it from LocalStack to a live account
-- [ ] **Grafana dashboards as code** — version the dashboards alongside the app
-
----
-
-## 📂 Project Structure
-
-```
-patient-management/
-├── api-gateway/         # Spring Cloud Gateway — routing + JWT validation (:4004)
-├── auth-service/        # Authentication & JWT issuing (:4005)
-├── patient-service/     # Core CRUD, gRPC client, Kafka producer, caching (:4000)
-├── billing-service/     # gRPC server for billing accounts (:9001 / :4001)
-├── analytic-service/    # Kafka consumer + SQL analytics store (:4002)
-├── infrastructure/      # AWS CDK (LocalStack) — VPC, ECS, RDS, MSK   🚧 in progress
-├── k8s/                 # Kubernetes manifests (Deployments, StatefulSet, PVCs, Secrets)
-├── monitoring/          # Prometheus config (Grafana dashboards)
-├── integration-tests/   # Cross-service end-to-end tests
-├── api-requests/        # Sample HTTP requests
-├── grpc-requests/       # Sample gRPC requests
-├── learning-notes/      # Day-by-day write-ups of everything above
-└── .github/workflows/   # CI/CD pipeline
+```mermaid
+stateDiagram-v2
+    [*] --> CREATED
+    CREATED --> PENDING_REVIEW: risk HOLD
+    CREATED --> AUTHORIZED: risk ALLOW + issuer approves
+    CREATED --> FAILED: risk BLOCK / declined
+    PENDING_REVIEW --> AUTHORIZED: ADMIN approves + issuer approves
+    PENDING_REVIEW --> FAILED: ADMIN rejects
+    AUTHORIZED --> CAPTURED
+    AUTHORIZED --> VOIDED
+    AUTHORIZED --> EXPIRED: not captured in 7 days
+    CAPTURED --> PARTIALLY_REFUNDED
+    CAPTURED --> REFUNDED
+    PARTIALLY_REFUNDED --> PARTIALLY_REFUNDED: another partial refund
+    PARTIALLY_REFUNDED --> REFUNDED
 ```
 
----
+## How the main flows work
 
-<div align="center">
+### Authorize, with the risk check
 
-**Built by [Amit Saini](https://github.com/amitsaini1912)** · Java / Spring Boot backend engineer
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant G as api-gateway
+    participant B as billing-service
+    participant V as card-vault
+    participant R as risk engine
+    participant S as acquirer (simulator)
+    C->>G: POST /api/payments (JWT, Idempotency-Key)
+    G->>G: validate JWT, per-user rate limit
+    G->>B: POST /payments + X-User-Id
+    B->>B: claim the Idempotency-Key (Postgres row)<br/>same key again = replay the stored answer
+    B->>V: card metadata for the token (brand, last4, fingerprint)
+    B->>B: per-card rate limit, lock FX rate if foreign, save CREATED
+    B->>R: POST /v2/assess (facts only, 300 ms budget, 1 retry, circuit breaker)
+    alt engine down / slow / breaker open
+        B->>B: fallback rules: allow < INR 50k, else hold for review (never block blind)
+    end
+    alt ALLOW
+        B->>S: authorize (idempotency key derived from the client's key)
+        S->>V: detokenize (the acquirer may see the PAN)
+        S->>S: 0100 to network -> issuer: approve, hold the amount
+        S-->>B: approved, auth reference
+        B->>B: one transaction: AUTHORIZED + outbox event + audit entry
+    else HOLD
+        B->>B: PENDING_REVIEW (ADMIN approves or rejects later)
+    else BLOCK
+        B->>B: FAILED, the card network is never asked
+    end
+    B-->>C: 201 + payment (status, risk verdict, network code)
+```
 
-*If this project helped or interested you, consider giving it a ⭐*
+If the acquirer doesn't answer, the outcome is unknown: the client gets **503 + Retry-After** and retries with the
+same key, which reaches the acquirer with the same key and gets the original result (ADR 0023).
 
-</div>
+### Capture (and what the ledger records)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant B as billing-service
+    participant S as acquirer
+    C->>B: POST /payments/{id}/capture (Idempotency-Key)
+    B->>S: capture the authorization (same key on retry)
+    S-->>B: captured
+    B->>B: lock the payment row, then one transaction:<br/>CAPTURED + journal entry + outbox + audit
+    Note over B: DR patient receivable / CR hospital revenue<br/>DR processor receivable / CR patient receivable<br/>(foreign currency: through FX clearing at the locked rate)
+    B-->>C: 200 CAPTURED
+    S-->>B: webhook payment.captured (later, already applied = no-op)
+```
+
+### Refund
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant B as billing-service
+    participant S as acquirer
+    C->>B: POST /payments/{id}/refunds {amount} (Idempotency-Key)
+    B->>B: check refundable = captured - refunded - charged back
+    B->>S: refund (key derived from the client's key)
+    S-->>B: refund id
+    B->>B: lock the payment row (concurrent refunds queue here), re-check the amount,<br/>refund row + mirror journal entry + outbox + audit
+    Note over B: DR refunds (contra-revenue) / CR patient receivable<br/>DR patient receivable / CR processor receivable
+    B-->>C: 201 refund (or 409 if another refund took the rest)
+```
+
+### Webhooks from the acquirer
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as acquirer
+    participant B as billing-service
+    S->>B: POST /webhooks/gateway, header t=timestamp,v1=HMAC-SHA256(t.body)
+    B->>B: verify signature (constant time) and age (< 5 min): else 401
+    B->>B: store event id: seen before = 200, nothing changes
+    alt event moves the payment forward (e.g. our capture was never recorded)
+        B->>B: apply it: heals the gap left by a crash
+    else event is older than the payment's state
+        B->>B: record only (never moves a payment backwards)
+    else event is ahead of us (our own step still running)
+        B-->>S: 409, the acquirer retries with backoff
+    end
+    B-->>S: 200
+```
+
+### Daily reconciliation
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant J as billing (02:00 job)
+    participant S as acquirer
+    participant L as ledger
+    J->>S: GET /v1/settlements/{yesterday}
+    S-->>J: settled captures and refunds
+    J->>L: journal entries for the same day (source = CAPTURE / REFUND + id)
+    J->>J: match by id, compare amount and currency
+    Note over J: MISSING_IN_LEDGER, MISSING_IN_SETTLEMENT,<br/>AMOUNT_MISMATCH, CURRENCY_MISMATCH
+    J->>J: store the run + breaks: GET /reconciliation/runs/{date}
+```
+
+## Run it
+
+Needs JDK 21, Docker, Python 3, and (for load tests) [k6](https://k6.io).
+
+```bash
+# build the jars once
+for s in api-gateway auth-service billing-service card-vault payment-network-simulator; do
+  (cd $s && sh ./mvnw -q -DskipTests package); done
+
+# the risk engine repo next to this one (compose builds it from ../payment-risk-engine)
+git clone https://github.com/amitsaini1912/payment-risk-engine ../payment-risk-engine
+
+sh load-test/start-stack.sh      # compose (Postgres x2, Kafka, Redis, risk engine, Prometheus, Grafana)
+                                 # + the 5 Java services; generated secrets, own compose project
+sh load-test/demo.sh             # one payment end to end, step by step
+sh load-test/stop-stack.sh --wipe
+```
+
+`demo.sh` logs in, creates a billing account over gRPC, tokenizes a card, authorizes (risk check + card network),
+shows that a retry with the same key replays, captures, refunds part of it, reads the payment back, and verifies the
+audit chain. Then: Grafana at http://localhost:3000 (dashboard "Payments overview"), Prometheus at :9090.
+
+Development without the scripts: `cp .env.example .env`, `docker compose up -d billing-db vault-db kafka redis`, run a
+service with `sh ./mvnw spring-boot:run`. Tracing: `docker compose up -d jaeger` and `monitoring/otel/run-traced.sh`.
+
+### Tests
+
+```bash
+cd billing-service && sh ./mvnw verify          # 407 tests, Testcontainers (Postgres, Kafka, Redis, Toxiproxy)
+# with a coverage report (target/site/jacoco/index.html), the command CI runs:
+sh ./mvnw org.jacoco:jacoco-maven-plugin:0.8.12:prepare-agent verify org.jacoco:jacoco-maven-plugin:0.8.12:report
+```
+
+Load and chaos (stack running): `k6 run -e PROFILE=step load-test/checkout.js`, `sh load-test/chaos.sh kafka`
+(also `risk`, `db`, `redis`, `vault`, `simulator`).
+
+Measured 2026-11-01 with the CI command (JaCoCo; "hand-written" leaves out the protobuf/gRPC classes generated at
+build time, which the all-classes figure includes):
+
+| Service | Tests | Lines (hand-written) | Branches | Lines, all classes |
+|---|---|---|---|---|
+| billing-service | 407 | **92.4%** | 79.6% | 66.7% |
+| payment-network-simulator | 35 | 92.7% | 79.1% | 92.7% |
+| card-vault | 43 | 92.2% | 81.2% | 92.2% |
+| api-gateway | 12 | 93.9% | 76.5% | 93.9% |
+| analytic-service | 7 | 69.6% | 70.6% | 37.2% |
+| auth-service | 3 | 59.6% | 66.7% | 59.6% |
+| patient-service | 6 | 51.6% | 0% | 8.0% |
+| [payment-risk-engine](https://github.com/amitsaini1912/payment-risk-engine) | 253 | 92% (pytest-cov) | | |
+
+auth, patient and analytics predate the payments work and were only lightly extended; the payment path is where
+the tests are.
+
+CI runs every service's tests on each push, in parallel, with coverage in the job summary (report only).
+
+## Documents
+
+- [docs/adr/](docs/adr/) — 23 architecture decisions: what was chosen, the alternatives, and the cost
+- [docs/PERFORMANCE.md](docs/PERFORMANCE.md) — k6 load test, the bottleneck, before/after
+- [docs/CHAOS.md](docs/CHAOS.md) — six failures under load, what happened, what was fixed
+- [docs/ROUNDING.md](docs/ROUNDING.md) — money in minor units, rounding and allocation rules
+
+## Known limitations (honest list)
+
+- **Unknown acquirer outcomes are resolved by client retries only.** An acquirer outage longer than the client's
+  patience leaves authorizations nobody captures (59 in a 60 s freeze); they are released by the 7-day expiry.
+  Next: a job that asks the acquirer about stale payments and voids the abandoned ones.
+- The risk engine runs **one worker**: ~30 risk-checked payments/s on this laptop; above that billing degrades to
+  its fallback rules (safely, but without the model).
+- Payouts are not modelled (the acquirer's receivable never moves to a bank account); FX rates are entered by hand.
+- The simulator keeps state in memory; card-vault keys come from env (production: KMS/HSM envelope encryption).
+- `patient-service` still writes to Kafka directly (no outbox); `/reconciliation` and `/fx` have no gateway route
+  or RBAC (internal endpoints).
+- Kubernetes manifests in `k8s/` predate the payments work and don't include card-vault, the simulator or the risk
+  engine. Docker Compose + scripts are the supported way to run it.
+
+## Project structure
+
+```
+billing-service/            payments, ledger, refunds, chargebacks, FX, idempotency, outbox, audit, reconciliation
+card-vault/                 tokenization (the only place card numbers are stored)
+payment-network-simulator/  acquirer + card network + issuer, settlement reports, signed webhooks
+api-gateway/  auth-service/  patient-service/  analytic-service/
+load-test/                  start/stop the stack, demo, k6 checkout test, chaos runner, results/
+monitoring/                 Prometheus, Grafana dashboard (provisioned), OpenTelemetry agent scripts
+docs/                       ADRs, PERFORMANCE.md, CHAOS.md, ROUNDING.md
+k8s/  infrastructure/       older deployment experiments (see limitations)
+```

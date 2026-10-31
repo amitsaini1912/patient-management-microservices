@@ -18,6 +18,9 @@ jobs:
           - auth-service
           - analytic-service
           - api-gateway
+          # Day 24a: in the repo since Days 7/10/11, never run in CI until now (78 tests)
+          - card-vault
+          - payment-network-simulator
     defaults:
       run:
         working-directory: ${{ matrix.service }}
@@ -35,8 +38,39 @@ jobs:
       - name: Make Maven wrapper executable
         run: chmod +x mvnw
 
-      - name: Build and run tests
-        run: ./mvnw -B verify
+      # JaCoCo from the command line (no plugin in the poms): agent before the tests, report after. Report only -
+      # coverage never fails the build (decided Day 24a). Same command locally for an HTML report in
+      # target/site/jacoco/index.html.
+      - name: Build and run tests (with coverage)
+        run: ./mvnw -B org.jacoco:jacoco-maven-plugin:0.8.12:prepare-agent verify org.jacoco:jacoco-maven-plugin:0.8.12:report
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          [ -f target/site/jacoco/jacoco.csv ] || { echo "no coverage report"; exit 0; }
+          python3 - "${{ matrix.service }}" <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
+          import csv, os, sys
+          rows = list(csv.DictReader(open("target/site/jacoco/jacoco.csv")))
+          # hand-written = classes with a source file; protobuf/gRPC code generated into target/ is counted apart
+          mine = [r for r in rows if os.path.exists(
+              f"src/main/java/{r['PACKAGE'].replace('.', '/')}/{r['CLASS'].split('.')[0]}.java")]
+          def pct(rs, kind):
+              hit = sum(int(r[f"{kind}_COVERED"]) for r in rs)
+              total = hit + sum(int(r[f"{kind}_MISSED"]) for r in rs)
+              return f"{100 * hit / total:.1f}% ({hit}/{total})" if total else "n/a"
+          print(f"**{sys.argv[1]}** coverage: lines {pct(mine, 'LINE')}, branches {pct(mine, 'BRANCH')}"
+                f" (hand-written; all classes incl. generated: lines {pct(rows, 'LINE')})")
+          PY
+          # annotations are public (logs need a login): the number is readable from the run page / API
+          echo "::notice title=${{ matrix.service }} coverage::$(tail -1 "$GITHUB_STEP_SUMMARY" | sed 's/\*//g')"
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.service }}
+          path: ${{ matrix.service }}/target/site/jacoco/
+          if-no-files-found: ignore
 
       # Job logs need a GitHub login; annotations are public. On failure, show each failed test class + its first
       # assertion/exception lines as an annotation, so a red run can be diagnosed from the run page or the API.

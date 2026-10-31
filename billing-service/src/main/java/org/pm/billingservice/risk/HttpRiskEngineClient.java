@@ -19,7 +19,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
- * POST /v2/assess on the risk engine (razorpay-risk-agent, its ADR 0001): billing sends FACTS, the engine computes
+ * POST /v2/assess on the risk engine (payment-risk-engine, its ADR 0001): billing sends FACTS, the engine computes
  * every risk feature itself. The payment id is the transaction_id, so a retry of the same payment gets the engine's
  * stored decision (its ADR 0003).
  *

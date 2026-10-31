@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-31
-- Other side: razorpay-risk-agent ADR 0007 (FastAPI + Kafka consumer spans).
+- Other side: payment-risk-engine ADR 0007 (FastAPI + Kafka consumer spans).
 
 ## Context
 A payment touches up to seven processes (gateway, auth, billing, card-vault, the acquirer/network simulator, the risk

@@ -101,7 +101,7 @@ class ChargebackIntegrationTest {
         List<JsonNode> events = jsonEvents(payment, "chargeback.created");
         assertThat(events).hasSize(1);
         JsonNode event = events.get(0);
-        // razorpay-risk-agent/docs/contracts/chargeback.created.v1.schema.json: exactly these 7 fields
+        // payment-risk-engine/docs/contracts/chargeback.created.v1.schema.json: exactly these 7 fields
         assertThat(event.size()).isEqualTo(7);
         assertThat(event.get("transaction_id").asText()).isEqualTo(payment.getId().toString());
         assertThat(event.get("amount_minor").isIntegralNumber()).isTrue();

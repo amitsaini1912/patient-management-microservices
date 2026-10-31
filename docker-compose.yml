@@ -1,7 +1,7 @@
 # Local development stack. Grows one service at a time (see each day's notes).
 #   cp .env.example .env      # then set real passwords
 #   docker compose up -d billing-db kafka vault-db redis
-#   docker compose up -d --build risk-engine     # Day 19: needs ../razorpay-risk-agent checked out next to this repo
+#   docker compose up -d --build risk-engine     # Day 19: needs ../payment-risk-engine checked out next to this repo
 #   docker compose up -d jaeger                  # Day 20a: traces at http://localhost:16686 (run Java services with
 #                                                #   monitoring/otel/run-traced.sh to send theirs)
 #   docker compose up -d prometheus grafana      # Day 20b: metrics http://localhost:9090, dashboards http://localhost:3000
@@ -74,11 +74,11 @@ services:
       interval: 5s
       retries: 10
 
-  # Day 19: the risk engine from the sibling repo (razorpay-risk-agent). billing-service on your machine calls it at
+  # Day 19: the risk engine from the sibling repo (payment-risk-engine). billing-service on your machine calls it at
   # localhost:8000 when BILLING_RISK_ENABLED=true (ADR 0017). It keeps its own Redis DB (1; billing's rate limits use 0)
   # and consumes chargeback.created from this Kafka (its feedback loop, Day 18). The model is trained during the build.
   risk-engine:
-    build: ../razorpay-risk-agent
+    build: ../payment-risk-engine
     image: risk-engine:local
     environment:
       RISK_API_KEYS: billing:${RISK_API_KEY_BILLING:?set RISK_API_KEY_BILLING in .env}

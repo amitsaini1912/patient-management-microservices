@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-31
-- Builds on: ADR 0019 (tracing). Other side: razorpay-risk-agent ADR 0008 (its JSON logs; its metrics are Day 16).
+- Builds on: ADR 0019 (tracing). Other side: payment-risk-engine ADR 0008 (its JSON logs; its metrics are Day 16).
 
 ## Context
 Only patient-service exposed Prometheus metrics, nothing was scraped, and logs were plain text without the trace ids

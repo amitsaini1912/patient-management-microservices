@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-31
-- Builds on: ADR 0004 (optimistic locking), 0006 (refunds), 0007 (idempotency). Other side: razorpay-risk-agent
+- Builds on: ADR 0004 (optimistic locking), 0006 (refunds), 0007 (idempotency). Other side: payment-risk-engine
   ADR 0009 (its property tests).
 
 ## Context

@@ -2,10 +2,10 @@
 
 - Status: Accepted
 - Date: 2026-10-31
-- Plan name: "ADR-007" (numbers shifted, see PROGRESS). Other side of the contract: razorpay-risk-agent ADR 0001/0003.
+- Plan name: "ADR-007" (numbers shifted, see PROGRESS). Other side of the contract: payment-risk-engine ADR 0001/0003.
 
 ## Context
-billing-service authorized every card payment it was asked to. The risk engine (razorpay-risk-agent, `POST
+billing-service authorized every card payment it was asked to. The risk engine (payment-risk-engine, `POST
 /v2/assess`) can say allow / hold for review / block, but nothing called it. Calling it puts a network hop owned by
 another team in the middle of every payment: it can be slow, down, or wrong, and payments must not stop.
 
@@ -54,7 +54,7 @@ another team in the middle of every payment: it can be slow, down, or wrong, and
   `RiskCheckIntegrationTest` 10 (real Postgres: allow/hold/block, retry of a held payment, engine 503 → fallback
   after one retry, slow engine, approve, approve + network decline, reject, only held can be reviewed),
   `PaymentControllerTest` +4 (context forwarded, 403 for missing/USER/lower-case admin, reviewer named, bad decision).
-- By hand (compose: billing-db, kafka, redis, **risk-engine built from ../razorpay-risk-agent**; billing jar on the
+- By hand (compose: billing-db, kafka, redis, **risk-engine built from ../payment-risk-engine**; billing jar on the
   host with `BILLING_RISK_ENABLED=true`, fake acquirer + vault): INR 1,500 new customer → ALLOW (0.08); INR 45,000
   same new customer → BLOCK (R02_AMOUNT_ANOMALY, 0.825); 5 × INR 900 on one card in a minute → ALLOW then HOLD
   ×4 (R01_VELOCITY); the 6th → 429 from billing's own card limit, before risk. Review: USER → 403, ADMIN approve →

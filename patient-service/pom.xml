@@ -31,6 +31,8 @@
         <!-- Override Spring Boot's managed Testcontainers version so its docker-java
              client can talk to the newer Docker Engine (API 1.54). -->
         <testcontainers.version>1.21.4</testcontainers.version>
+        <!-- Day 24a: JaCoCo (CI) puts its agent into argLine; empty by default, surefire adds @{argLine} -->
+        <argLine></argLine>
     </properties>
     <dependencies>
         <dependency>
@@ -194,7 +196,7 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <argLine>-Duser.timezone=UTC</argLine>
+                    <argLine>@{argLine} -Duser.timezone=UTC</argLine>
                 </configuration>
             </plugin>
 

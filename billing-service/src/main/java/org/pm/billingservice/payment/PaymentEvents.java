@@ -24,7 +24,7 @@ import payment.events.PaymentEvent;
 /**
  * Turns payment changes into {@link PaymentEvent}s in the outbox AND rows in the audit log (Day 13, ADR 0016).
  * Day 19b (ADR 0018): two JSON events for the risk engine go through the same outbox - `chargeback.created` and
- * `payment.outcome` (captured / review approved / review rejected) - per the schemas in razorpay-risk-agent's
+ * `payment.outcome` (captured / review approved / review rejected) - per the schemas in payment-risk-engine's
  * docs/contracts/. Key = payment id = the risk engine's transaction_id.
  * Day 20b (ADR 0020): every payment event is also counted, billing_payment_events_total{type, reason} - AFTER the
  * transaction commits (a rolled-back or retried attempt must not count twice). Payments/s and approval rate come

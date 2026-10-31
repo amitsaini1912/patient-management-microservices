@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-31
-- Results: `docs/PERFORMANCE.md`. Risk engine side: razorpay-risk-agent ADR 0010.
+- Results: `docs/PERFORMANCE.md`. Risk engine side: payment-risk-engine ADR 0010.
 
 ## Decision
 - **k6** (`load-test/checkout.js`), one iteration = one checkout through the real path: gRPC account → tokenize at

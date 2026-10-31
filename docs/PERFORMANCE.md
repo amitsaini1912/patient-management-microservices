@@ -64,7 +64,7 @@ tokenize p95 < 500 ms, no dropped iterations.
 
 The first smoke runs (2026-10-31) sent ~1% of payments to billing's **fallback** rules: the risk engine answered 422
 ("looks like a card number") for values that were not card numbers. Both bugs were in the engine's PAN guard
-(razorpay-risk-agent `agent/pci.py`):
+(payment-risk-engine `agent/pci.py`):
 
 1. **Device id `dev-<uuid>`**: the UUID rule only matched a UUID not preceded by `-`, so digits inside it
    (`6047-1682-4885-9`) passed Luhn. Real apps send ids like `android-<uuid>`.
@@ -108,7 +108,7 @@ not only k6's latencies (dashboard panel "risk fallback rate", Day 20b).
 
 ### Bottleneck: the risk engine's CPU time per decision (one worker)
 
-Engine alone, `POST /v2/assess` without billing in front (`razorpay-risk-agent/load-test/assess.js`; run by Claude
+Engine alone, `POST /v2/assess` without billing in front (`payment-risk-engine/load-test/assess.js`; run by Claude
 while diagnosing, same machine, 30 s per rate):
 
 | Rate | Mean | p99 | Dropped |
@@ -126,7 +126,7 @@ At 16.7 decisions/s the engine used 0.75 of a core, about 45 ms of CPU per decis
 | `feature_snapshot`: pandas features again | 3.9 |
 | shadow model: pandas features a third time + LogisticRegression | 5.9 |
 
-### Fix (razorpay-risk-agent `model/scorer.py`, `risk_v2/decision.py`)
+### Fix (payment-risk-engine `model/scorer.py`, `risk_v2/decision.py`)
 
 1. **Forest inference without scikit-learn's per-tree overhead**: call each tree's compiled `tree_.predict` and
    average, the same arithmetic as `predict_proba`. Max difference vs scikit-learn over all 15,000 training rows:

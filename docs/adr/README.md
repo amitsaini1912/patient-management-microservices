@@ -2,7 +2,7 @@
 
 One file per important decision: what we chose, what else we considered, and what it costs us.
 Format: Context → Decision → Alternatives → Consequences. ADRs are never edited after acceptance;
-a new ADR supersedes an old one.
+a new ADR supersedes or amends an old one, and the Status column says so (reviewed Day 24a).
 
 | # | Decision | Status |
 |---|---|---|
@@ -10,12 +10,12 @@ a new ADR supersedes an old one.
 | [0002](0002-billing-on-spring-boot-3-4.md) | billing-service on Spring Boot 3.4.1 like the other services | Accepted |
 | [0003](0003-double-entry-ledger.md) | Double-entry, append-only ledger enforced in code and in Postgres | Accepted |
 | [0004](0004-payment-state-machine-optimistic-locking.md) | Payment state machine as an explicit transition table + `@Version` optimistic locking | Accepted |
-| [0005](0005-payment-api-processor-calls-and-postings.md) | Payment API: processor calls outside DB transactions; ledger posts only when money moves | Accepted |
-| [0006](0006-refunds-and-authorization-expiry.md) | Refunds as records with mirror postings; authorization expiry via `FOR UPDATE SKIP LOCKED` | Accepted |
+| [0005](0005-payment-api-processor-calls-and-postings.md) | Payment API: processor calls outside DB transactions; ledger posts only when money moves | Accepted; amended by [0021](0021-correctness-under-concurrency.md) (refused amount → 409), [0023](0023-failure-answers-and-timeouts.md) (no answer → 503) |
+| [0006](0006-refunds-and-authorization-expiry.md) | Refunds as records with mirror postings; authorization expiry via `FOR UPDATE SKIP LOCKED` | Accepted; amended by [0021](0021-correctness-under-concurrency.md) (concurrent over-refund → 409, not 502) |
 | [0007](0007-idempotency-keys.md) | `Idempotency-Key` on every money-moving POST: Postgres claim row + idempotent payment steps | Accepted |
 | [0008](0008-transactional-outbox.md) | Payment events via a transactional outbox; protobuf payload; one ordered relay | Accepted |
 | [0009](0009-idempotent-consumer-and-dlt.md) | analytic-service: idempotent payment-event consumer + dead-letter topics | Accepted |
-| [0010](0010-acquirer-simulator-and-signed-webhooks.md) | payment-network-simulator as our acquirer; signed, deduplicated, forward-only webhooks | Accepted |
+| [0010](0010-acquirer-simulator-and-signed-webhooks.md) | payment-network-simulator as our acquirer; signed, deduplicated, forward-only webhooks | Accepted; amended by [0023](0023-failure-answers-and-timeouts.md) (acquirer no answer → 503 + Retry-After, not 502) |
 | [0011](0011-daily-reconciliation.md) | Daily reconciliation of the ledger against the acquirer's settlement report | Accepted |
 | [0012](0012-multi-currency-ledger.md) | Multi-currency: INR books, USD/EUR card payments, locked rate, FX clearing and revaluation | Accepted |
 | [0013](0013-card-vault-tokenization.md) | card-vault: tokenization with AES-256-GCM; billing never sees a card number | Accepted |

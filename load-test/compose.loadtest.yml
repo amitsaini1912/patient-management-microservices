@@ -1,0 +1,6 @@
+# Day 22: load-test overrides on top of docker-compose.yml (used by load-test/start-stack.sh only).
+services:
+  risk-engine:
+    environment:
+      # no span export during load tests (no Jaeger running; tracing cost is not what we measure)
+      OTEL_EXPORTER_OTLP_ENDPOINT: ""

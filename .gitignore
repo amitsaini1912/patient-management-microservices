@@ -9,3 +9,8 @@ monitoring/otel/opentelemetry-javaagent.jar.part
 
 # property-test example databases (Day 21): local, regenerated
 .jqwik-database
+
+# Day 22 load test: generated secrets + logs/pids/snapshots (results/ IS committed)
+load-test/.env.loadtest
+load-test/run/
+load-test/__pycache__/

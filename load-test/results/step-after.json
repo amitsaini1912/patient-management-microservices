@@ -1,0 +1,232 @@
+{
+    "metrics": {
+        "checkout_duration": {
+            "avg": 57.875901009130224,
+            "med": 53,
+            "p(90)": 79,
+            "p(95)": 93,
+            "p(99)": 271,
+            "max": 353,
+            "thresholds": {
+                "p(95)<2000": false
+            }
+        },
+        "iteration_duration": {
+            "p(99)": 276.41945914000047,
+            "max": 356.942292,
+            "avg": 61.71059190112941,
+            "med": 56.2197135,
+            "p(90)": 84.54834989999999,
+            "p(95)": 99.32831039999999
+        },
+        "grpc_req_duration": {
+            "p(95)": 6.1270203,
+            "p(99)": 9.731872870000002,
+            "max": 45.836268,
+            "avg": 3.494694135992315,
+            "med": 3.135243,
+            "p(90)": 5.0588023
+        },
+        "vus_max": {
+            "max": 50,
+            "value": 50,
+            "min": 50
+        },
+        "http_req_duration{name:tokenize}": {
+            "med": 4.3618974999999995,
+            "p(90)": 6.7249395,
+            "p(95)": 8.475157849999997,
+            "p(99)": 11.660771290000026,
+            "max": 39.854536,
+            "avg": 4.853367193897156,
+            "thresholds": {
+                "p(95)<500": false
+            }
+        },
+        "dropped_iterations": {
+            "count": 0,
+            "rate": 0,
+            "thresholds": {
+                "count<1": false
+            }
+        },
+        "http_req_duration{expected_response:true}": {
+            "p(90)": 41.5333262,
+            "p(95)": 49.875218599999975,
+            "p(99)": 104.94767195999958,
+            "max": 329.89154,
+            "avg": 19.0750621148441,
+            "med": 11.927181
+        },
+        "http_req_tls_handshaking": {
+            "p(95)": 0,
+            "p(99)": 0,
+            "max": 0,
+            "avg": 0,
+            "med": 0,
+            "p(90)": 0
+        },
+        "http_req_receiving": {
+            "p(95)": 0.14783999999999978,
+            "p(99)": 0.25090483999999974,
+            "max": 2.240652,
+            "avg": 0.07851912909942761,
+            "med": 0.06859,
+            "p(90)": 0.116826
+        },
+        "payment_outcomes": {
+            "rate": 18.905408731787727,
+            "count": 8324
+        },
+        "vus": {
+            "value": 1,
+            "min": 0,
+            "max": 14
+        },
+        "http_req_sending": {
+            "avg": 0.01983588467544951,
+            "med": 0.017942,
+            "p(90)": 0.028060599999999998,
+            "p(95)": 0.033216399999999965,
+            "p(99)": 0.05894079999999999,
+            "max": 0.765526
+        },
+        "data_received": {
+            "count": 20228448,
+            "rate": 45942.705123704225
+        },
+        "grpc_account_duration": {
+            "p(99)": 11,
+            "max": 46,
+            "avg": 3.7339019702066314,
+            "med": 3,
+            "p(90)": 5,
+            "p(95)": 7
+        },
+        "http_req_duration{name:capture}": {
+            "avg": 12.988315547333059,
+            "med": 11.889125,
+            "p(90)": 17.293438,
+            "p(95)": 20.088560100000002,
+            "p(99)": 27.10111961000003,
+            "max": 101.670248,
+            "thresholds": {
+                "p(95)<1000": false
+            }
+        },
+        "data_sent": {
+            "count": 13257540,
+            "rate": 30110.429178042414
+        },
+        "iterations": {
+            "count": 8324,
+            "rate": 18.905408731787727
+        },
+        "http_req_duration{name:authorize}": {
+            "max": 329.89154,
+            "avg": 39.35137787217698,
+            "med": 34.9644565,
+            "p(90)": 54.768974899999996,
+            "p(95)": 67.23809274999998,
+            "p(99)": 250.65154976000017,
+            "thresholds": {
+                "p(95)<1000": false
+            }
+        },
+        "http_req_waiting": {
+            "avg": 18.976707101069188,
+            "med": 11.852009,
+            "p(90)": 41.439557,
+            "p(95)": 49.7621208,
+            "p(99)": 104.80352195999973,
+            "max": 329.753601
+        },
+        "checks": {
+            "passes": 41620,
+            "fails": 0,
+            "value": 1
+        },
+        "http_req_duration": {
+            "med": 11.927181,
+            "p(90)": 41.5333262,
+            "p(95)": 49.875218599999975,
+            "p(99)": 104.94767195999958,
+            "max": 329.89154,
+            "avg": 19.0750621148441
+        },
+        "http_reqs": {
+            "count": 24973,
+            "rate": 56.718497388146915
+        },
+        "http_req_connecting": {
+            "avg": 0.0002614230168582069,
+            "med": 0,
+            "p(90)": 0,
+            "p(95)": 0,
+            "p(99)": 0,
+            "max": 0.216919
+        },
+        "http_req_blocked": {
+            "avg": 0.005191634925719759,
+            "med": 0.004172,
+            "p(90)": 0.006682,
+            "p(95)": 0.007941599999999991,
+            "p(99)": 0.015134959999999992,
+            "max": 3.224144
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 24973,
+            "thresholds": {
+                "rate<0.01": false
+            },
+            "value": 0
+        }
+    },
+    "setup_data": {
+        "token": "eyJhbGciOiJIUzM4NCJ9.eyJzdWIiOiJ0ZXN0dXNlckB0ZXN0LmNvbSIsInJvbGUiOiJBRE1JTiIsImlhdCI6MTc5MzQ2MDcwMCwiZXhwIjoxNzkzNDk2NzAwfQ.aRrNgg1k6cIwZ_nbSO3frssUAH6zilut8Sx9PXR1dEzLRURQVaMWfzCEdU4zYLXg"
+    },
+    "root_group": {
+        "groups": {},
+        "checks": {
+                "account created": {
+                    "fails": 0,
+                    "name": "account created",
+                    "path": "::account created",
+                    "id": "f5ebdbe639513a7fb8a13524bd4f2a56",
+                    "passes": 8324
+                },
+                "card tokenized (201)": {
+                    "id": "f87cc0df03ef1d2839e3746ab2ab291c",
+                    "passes": 8324,
+                    "fails": 0,
+                    "name": "card tokenized (201)",
+                    "path": "::card tokenized (201)"
+                },
+                "payment created (201)": {
+                    "id": "82cb266a3a9812cd37b0a95276faad88",
+                    "passes": 8324,
+                    "fails": 0,
+                    "name": "payment created (201)",
+                    "path": "::payment created (201)"
+                },
+                "captured (200)": {
+                    "name": "captured (200)",
+                    "path": "::captured (200)",
+                    "id": "e6a04481a341e98c2b00a52c0e9d7562",
+                    "passes": 8324,
+                    "fails": 0
+                },
+                "payment CAPTURED": {
+                    "id": "9928e5c8348a038bd68457988a5dac1f",
+                    "passes": 8324,
+                    "fails": 0,
+                    "name": "payment CAPTURED",
+                    "path": "::payment CAPTURED"
+                }
+            },
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e"
+    }
+}

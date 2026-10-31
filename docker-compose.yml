@@ -4,6 +4,7 @@
 #   docker compose up -d --build risk-engine     # Day 19: needs ../razorpay-risk-agent checked out next to this repo
 #   docker compose up -d jaeger                  # Day 20a: traces at http://localhost:16686 (run Java services with
 #                                                #   monitoring/otel/run-traced.sh to send theirs)
+#   docker compose up -d prometheus grafana      # Day 20b: metrics http://localhost:9090, dashboards http://localhost:3000
 services:
   billing-db:
     image: postgres:16
@@ -87,6 +88,7 @@ services:
       # Day 20a: traces to Jaeger (billing's traceparent makes /v2/assess part of the payment's trace)
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
       OTEL_SERVICE_NAME: risk-engine
+      LOG_FORMAT: json   # Day 20b: one JSON object per line, with trace_id
     ports:
       - "8000:8000"
     volumes:
@@ -108,7 +110,37 @@ services:
       - "4317:4317"
       - "4318:4318"
 
+  # Day 20b (ADR 0020): scrapes the Java services on the host (host.docker.internal) and the risk engine. 7 days kept.
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=7d"]
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # Linux: reach services started on the host
+    ports:
+      - "9090:9090"
+
+  # Day 20b: datasource + "Payments overview" dashboard provisioned from monitoring/grafana (edit the JSON, not the UI).
+  # Anonymous users can view; the admin password comes from .env.
+  grafana:
+    image: grafana/grafana:11.3.1
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/payments-overview.json
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
 volumes:
   billing-db-data:
   vault-db-data:
   risk-data:
+  prometheus-data:

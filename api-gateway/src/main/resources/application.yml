@@ -2,6 +2,8 @@ server:
   port: 4004 # Gateway listens on port 4004
 
 spring:
+  application:
+    name: api-gateway   # Day 20b: metrics tag + log service name
   # Day 12: the rate limiter's buckets. If Redis is down the limiter lets requests through (fail open) and logs.
   # Docker/k8s: SPRING_DATA_REDIS_HOST=redis (same as patient-service)
   # Short timeouts: when Redis dies, Lettuce queues commands on its broken connection until the command timeout
@@ -95,3 +97,18 @@ spring:
 # auth: # -> We can Add this to env variables of gateway-service to tell where you have auth service
 #  service:   # for JwtValidation
 #    url: http://auth-service:4005
+
+# Day 20b (ADR 0020): metrics for Prometheus (served by the gateway itself, not routed); JSON logs via
+# LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        spring.cloud.gateway.requests: true

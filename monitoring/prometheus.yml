@@ -1,8 +1,30 @@
+# Day 20b (ADR 0020): Prometheus in docker-compose. The Java services run on the host (mvn / run-traced.sh), so they are
+# scraped through host.docker.internal; the risk engine runs in compose. Each target adds an `application` label.
 global:
   scrape_interval: 15s
+  evaluation_interval: 15s
 
 scrape_configs:
-  - job_name: 'patient-service'
-    metrics_path: '/actuator/prometheus'
+  - job_name: spring
+    metrics_path: /actuator/prometheus
     static_configs:
-      - targets: ['patient-service:4000']
+      - targets: ['host.docker.internal:4004']
+        labels: {service: api-gateway}
+      - targets: ['host.docker.internal:4005']
+        labels: {service: auth-service}
+      - targets: ['host.docker.internal:4000']
+        labels: {service: patient-service}
+      - targets: ['host.docker.internal:4001']
+        labels: {service: billing-service}
+      - targets: ['host.docker.internal:4002']
+        labels: {service: analytic-service}
+      - targets: ['host.docker.internal:4010']
+        labels: {service: payment-network-simulator}
+      - targets: ['host.docker.internal:4020']
+        labels: {service: card-vault}
+
+  - job_name: risk-engine
+    metrics_path: /metrics/prometheus
+    static_configs:
+      - targets: ['risk-engine:8000']
+        labels: {service: risk-engine}

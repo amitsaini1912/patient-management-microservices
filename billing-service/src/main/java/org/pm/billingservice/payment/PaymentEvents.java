@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.google.protobuf.Timestamp;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -16,6 +17,8 @@ import org.pm.billingservice.audit.AuditLog;
 import org.pm.billingservice.outbox.OutboxWriter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import payment.events.PaymentEvent;
 
 /**
@@ -23,6 +26,9 @@ import payment.events.PaymentEvent;
  * Day 19b (ADR 0018): two JSON events for the risk engine go through the same outbox - `chargeback.created` and
  * `payment.outcome` (captured / review approved / review rejected) - per the schemas in razorpay-risk-agent's
  * docs/contracts/. Key = payment id = the risk engine's transaction_id.
+ * Day 20b (ADR 0020): every payment event is also counted, billing_payment_events_total{type, reason} - AFTER the
+ * transaction commits (a rolled-back or retried attempt must not count twice). Payments/s and approval rate come
+ * from it.
  * Every method must be called inside the transaction that makes the change (OutboxWriter and AuditLog enforce it),
  * after the change is applied to {@code payment}. Every payment change goes through here, so nothing escapes the audit.
  */
@@ -43,11 +49,12 @@ public class PaymentEvents {
     private final AuditLog audit;
     private final Clock clock;
     private final ObjectMapper json;
+    private final MeterRegistry meters;
     private final String topic;
     private final String chargebackTopic;
     private final String outcomeTopic;
 
-    public PaymentEvents(OutboxWriter outbox, AuditLog audit, Clock clock, ObjectMapper json,
+    public PaymentEvents(OutboxWriter outbox, AuditLog audit, Clock clock, ObjectMapper json, MeterRegistry meters,
                          @Value("${billing.events.payment-topic}") String topic,
                          @Value("${billing.events.chargeback-topic}") String chargebackTopic,
                          @Value("${billing.events.outcome-topic}") String outcomeTopic) {
@@ -55,6 +62,7 @@ public class PaymentEvents {
         this.audit = audit;
         this.clock = clock;
         this.json = json;
+        this.meters = meters;
         this.topic = topic;
         this.chargebackTopic = chargebackTopic;
         this.outcomeTopic = outcomeTopic;
@@ -158,6 +166,18 @@ public class PaymentEvents {
         outbox.append(eventId, "payment", payment.getId(), eventType, topic, payment.getId().toString(),
                 event.build().toByteArray());
         audit.append(eventType, "payment", payment.getId().toString(), auditDetails(eventId, payment, auditExtras));
+        countAfterCommit(eventType, "payment.failed".equals(eventType) ? payment.getFailureReason() : null);
+    }
+
+    /** reason: why a payment FAILED (card_declined, risk_declined, ...: a small, fixed set); "none" otherwise. */
+    private void countAfterCommit(String eventType, String reason) {
+        String reasonTag = reason == null ? "none" : reason;
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                meters.counter("billing.payment.events", "type", eventType, "reason", reasonTag).increment();
+            }
+        });
     }
 
     /** The payment after the change. Card: last4/brand only (never a number; the token is not needed for audit). */

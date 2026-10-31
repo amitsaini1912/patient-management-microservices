@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Every log line goes through PanMaskingConverter: message AND stack trace are scanned for PANs (ADR 0013).
-     %nopex: the stack trace is already inside %maskedMsg, so Logback must not print it again unmasked. -->
+<!-- Every log line is one JSON object written by MaskedJsonLogFormatter (Day 20b, ADR 0020): message, exception
+     messages AND stack trace are scanned for PANs and masked (ADR 0013). Boot's ECS format can't mask, so card-vault
+     doesn't use LOGGING_STRUCTURED_FORMAT_CONSOLE; it is always JSON. -->
 <configuration>
-    <conversionRule conversionWord="maskedMsg" converterClass="org.pm.cardvault.logging.PanMaskingConverter"/>
-
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
-        <encoder>
-            <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %5level [%thread] %logger{40} : %maskedMsg%n%nopex</pattern>
+        <encoder class="org.springframework.boot.logging.logback.StructuredLogEncoder">
+            <format>org.pm.cardvault.logging.MaskedJsonLogFormatter</format>
+            <charset>UTF-8</charset>
         </encoder>
     </appender>
 

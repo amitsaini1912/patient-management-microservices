@@ -1,0 +1,10 @@
+# Day 20b (ADR 0020): every JSON file in monitoring/grafana/dashboards is loaded; edit the file, not the UI.
+apiVersion: 1
+providers:
+  - name: payments
+    folder: Payments
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards

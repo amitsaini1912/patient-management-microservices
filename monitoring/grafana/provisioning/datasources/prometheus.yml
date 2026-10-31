@@ -1,0 +1,10 @@
+# Day 20b (ADR 0020): provisioned at Grafana startup - nothing is configured by hand in the UI.
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false

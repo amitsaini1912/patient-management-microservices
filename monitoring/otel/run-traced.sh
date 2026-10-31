@@ -1,5 +1,6 @@
 #!/bin/sh
-# Runs a service jar with the OpenTelemetry Java agent, exporting to Jaeger from docker-compose (OTLP/HTTP :4318).
+# Runs a service jar with the OpenTelemetry Java agent, exporting to Jaeger from docker-compose (OTLP/HTTP :4318),
+# and JSON logs with trace_id / span_id (Day 20b; LOGGING_STRUCTURED_FORMAT_CONSOLE= for plain text).
 #   docker compose up -d jaeger
 #   sh monitoring/otel/run-traced.sh billing-service billing-service/target/billing-service-0.0.1-SNAPSHOT.jar [args]
 # Traces: http://localhost:16686. The service's own env (DB passwords, keys ...) still has to be set by you.
@@ -11,7 +12,8 @@ DIR=$(cd "$(dirname "$0")" && pwd)
 export OTEL_SERVICE_NAME="$NAME"
 export OTEL_EXPORTER_OTLP_ENDPOINT="${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}"
 export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
-export OTEL_METRICS_EXPORTER=none OTEL_LOGS_EXPORTER=none    # traces only today; metrics/logs are Day 20b
+export OTEL_METRICS_EXPORTER=none OTEL_LOGS_EXPORTER=none    # metrics: Prometheus scrapes /actuator; logs: stdout JSON
+export LOGGING_STRUCTURED_FORMAT_CONSOLE="${LOGGING_STRUCTURED_FORMAT_CONSOLE-ecs}"
 # per-service agent settings, if any (e.g. billing-service.properties)
 CONFIG=""
 [ -f "$DIR/$NAME.properties" ] && CONFIG="-Dotel.javaagent.configuration-file=$DIR/$NAME.properties"

@@ -58,6 +58,13 @@ public class RiskAssessor {
                 .retryOnException(e -> e instanceof RiskEngineUnavailableException r && r.retryable())
                 .failAfterMaxAttempts(false)
                 .build());
+        // Day 20b: 0 closed, 1 open, 2 half-open (ADR 0020 dashboard)
+        meters.gauge("billing.risk.circuit.state", breaker, b -> switch (b.getState()) {
+            case CLOSED -> 0;
+            case OPEN, FORCED_OPEN -> 1;
+            case HALF_OPEN -> 2;
+            default -> -1;
+        });
         this.breaker.getEventPublisher().onStateTransition(event ->
                 log.warn("risk engine circuit breaker: {}", event.getStateTransition()));
     }

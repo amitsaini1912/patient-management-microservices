@@ -28,6 +28,7 @@ ADD --checksum=sha256:d05f6e36fac8db629263a6aaec2841cc934d064d7b19bfe38425b604b8
 ENV JAVA_TOOL_OPTIONS="-javaagent:/otel/opentelemetry-javaagent.jar" \
     OTEL_SDK_DISABLED=true OTEL_SERVICE_NAME=billing-service OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf \
     OTEL_METRICS_EXPORTER=none OTEL_LOGS_EXPORTER=none \
+    LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs \
     OTEL_INSTRUMENTATION_SPRING_SCHEDULING_ENABLED=false
 
 ENTRYPOINT ["java", "-jar", "app.jar"]

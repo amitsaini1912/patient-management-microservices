@@ -78,7 +78,7 @@ public class FakePaymentProcessor implements PaymentProcessor {
         holds.compute(processorReference, (reference, hold) -> {
             requireAuthorized(reference, hold);
             if (amount.isGreaterThan(hold.authorized())) {
-                throw new PaymentProcessorException("capture " + amount + " exceeds hold " + hold.authorized());
+                throw PaymentProcessorException.refused("capture " + amount + " exceeds hold " + hold.authorized());
             }
             return new Hold(hold.authorized(), amount, hold.refunded(), HoldState.CAPTURED);
         });
@@ -110,7 +110,7 @@ public class FakePaymentProcessor implements PaymentProcessor {
             }
             Money refundedAfter = hold.refunded().plus(amount);
             if (refundedAfter.isGreaterThan(hold.captured())) {
-                throw new PaymentProcessorException("refund " + amount + " exceeds what is left of " + hold.captured());
+                throw PaymentProcessorException.refused("refund " + amount + " exceeds what is left of " + hold.captured());
             }
             return new Hold(hold.authorized(), hold.captured(), refundedAfter, HoldState.CAPTURED);
         });

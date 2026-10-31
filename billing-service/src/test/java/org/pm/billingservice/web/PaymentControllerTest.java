@@ -250,6 +250,19 @@ class PaymentControllerTest {
     }
 
     @Test
+    void aDeliberateRefusalByTheProcessorIs409() throws Exception {
+        UUID id = UUID.randomUUID();
+        when(paymentService.refund(any(), eq(id), any(), any()))
+                .thenThrow(PaymentProcessorException.refused("refund INR 100.00 exceeds what is left"));
+
+        mvc.perform(post("/payments/{id}/refunds", id).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":\"100.00\",\"currency\":\"INR\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.title").value("Refused by the payment processor"))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("exceeds"))));
+    }
+
+    @Test
     void processorFailureIs502WithoutLeakingDetails() throws Exception {
         UUID id = UUID.randomUUID();
         when(paymentService.voidAuthorization(id)).thenThrow(new PaymentProcessorException("internal acquirer detail"));

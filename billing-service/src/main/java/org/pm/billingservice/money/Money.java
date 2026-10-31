@@ -3,6 +3,7 @@ package org.pm.billingservice.money;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Currency;
 import java.util.List;
 import java.util.Objects;
@@ -87,8 +88,11 @@ public record Money(long amountMinor, Currency currency) {
 
     /**
      * Split this amount by ratios without losing or creating a single minor unit.
-     * ₹1.00 split 1:1:1 gives [0.34, 0.33, 0.33] - the leftover paise go to the
-     * first parts, so the parts always add back to exactly the original amount.
+     * ₹1.00 split 1:1:1 gives [0.34, 0.33, 0.33]: every part gets its share rounded down, then the leftover paise
+     * go to the parts with the LARGEST remainders (ties: the earlier part), so the parts add back to exactly the
+     * original and every part is less than one paisa from its exact share.
+     * (Day 21: until then the leftovers went to the first parts - a property test found ₹0.08 split 5:1:34 giving
+     * [0.02, 0.00, 0.06] where the exact shares are 0.01, 0.002, 0.068.)
      */
     public List<Money> allocate(int... ratios) {
         if (ratios.length == 0) {
@@ -109,18 +113,24 @@ public record Money(long amountMinor, Currency currency) {
         }
 
         long[] parts = new long[ratios.length];
+        long[] fractions = new long[ratios.length];   // remainder of amount * ratio / total, in 1/total units
         long remainder = amountMinor;
         for (int i = 0; i < ratios.length; i++) {
             // multiplyExact: amount * ratio could overflow for very large amounts
-            parts[i] = Math.multiplyExact(amountMinor, ratios[i]) / total;
+            long scaled = Math.multiplyExact(amountMinor, ratios[i]);
+            parts[i] = scaled / total;
+            fractions[i] = scaled % total;
             remainder -= parts[i];
         }
-        // hand out the leftover minor units one by one (only to parts with a non-zero ratio)
-        for (int i = 0; remainder > 0; i = (i + 1) % ratios.length) {
-            if (ratios[i] > 0) {
-                parts[i]++;
-                remainder--;
-            }
+        // the leftover minor units (fewer than the number of parts) go to the largest fractions, earlier part first
+        Integer[] order = new Integer[ratios.length];
+        for (int i = 0; i < order.length; i++) {
+            order[i] = i;
+        }
+        Arrays.sort(order, (x, y) -> fractions[x] != fractions[y] ? Long.compare(fractions[y], fractions[x])
+                : Integer.compare(x, y));
+        for (int k = 0; remainder > 0; k++, remainder--) {
+            parts[order[k]]++;
         }
 
         List<Money> result = new ArrayList<>(ratios.length);

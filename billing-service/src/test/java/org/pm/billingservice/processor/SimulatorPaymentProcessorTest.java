@@ -117,12 +117,19 @@ class SimulatorPaymentProcessorTest {
     void refusalsAndAcquirerErrorsBecomeProcessorExceptions() {
         status = 409;
         response = "{\"error\":{\"code\":\"invalid_state\",\"message\":\"already captured\"}}";
-        assertThatThrownBy(() -> adapter.capture("k", "auth_1", inr(100)))
-                .isInstanceOf(PaymentProcessorException.class)
+        assertThatThrownBy(() -> adapter.capture("k", "auth_1", inr(100)))   // state: ours and theirs disagree -> 502
+                .isInstanceOfSatisfying(PaymentProcessorException.class, e -> assertThat(e.isRefused()).isFalse())
                 .hasMessageContaining("409").hasMessageContaining("invalid_state");
 
-        status = 503;
-        assertThatThrownBy(() -> adapter.voidAuthorization("k", "auth_1")).isInstanceOf(PaymentProcessorException.class);
+        status = 422;   // Day 21: amount refused (more than is left) -> our 409
+        assertThatThrownBy(() -> adapter.refund("k", "auth_1", inr(100)))
+                .isInstanceOfSatisfying(PaymentProcessorException.class, e -> assertThat(e.isRefused()).isTrue());
+
+        for (int failed : new int[] {401, 500, 503}) {   // our key, or the acquirer broken -> stays 502
+            status = failed;
+            assertThatThrownBy(() -> adapter.voidAuthorization("k", "auth_1"))
+                    .isInstanceOfSatisfying(PaymentProcessorException.class, e -> assertThat(e.isRefused()).isFalse());
+        }
     }
 
     @Test

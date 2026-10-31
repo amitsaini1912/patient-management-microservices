@@ -104,6 +104,14 @@ class MoneyTest {
     }
 
     @Test
+    void leftoverMinorUnitsGoToTheLargestRemainders() {
+        // found by MoneyPropertiesTest (Day 21): exact shares 1.0, 0.2, 6.8 paise
+        List<Money> parts = Money.ofMinor(8, "INR").allocate(5, 1, 34);
+
+        assertThat(parts).containsExactly(Money.ofMinor(1, "INR"), Money.ofMinor(0, "INR"), Money.ofMinor(7, "INR"));
+    }
+
+    @Test
     void allocateSkipsZeroRatios() {
         List<Money> parts = Money.ofMinor(5, "INR").allocate(0, 1, 1);
 

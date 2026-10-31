@@ -26,3 +26,4 @@ a new ADR supersedes an old one.
 | [0018](0018-chargebacks-and-risk-feedback-events.md) | Chargebacks as a ledger loss (ADMIN), chargeback.created + payment.outcome JSON events for the risk engine | Accepted |
 | [0019](0019-distributed-tracing.md) | Distributed tracing: OpenTelemetry agent, W3C context through HTTP, gRPC, Kafka and the outbox; Jaeger | Accepted |
 | [0020](0020-metrics-dashboards-json-logs.md) | Metrics for every service, billing business metrics, provisioned Grafana dashboard, JSON logs with trace ids | Accepted |
+| [0021](0021-correctness-under-concurrency.md) | Correctness under concurrency: storm tests, row lock when recording, 409 for refused amounts, property tests | Accepted |

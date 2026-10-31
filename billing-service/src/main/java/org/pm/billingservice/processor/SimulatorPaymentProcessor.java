@@ -113,9 +113,12 @@ public class SimulatorPaymentProcessor implements PaymentProcessor {
             }
             return result;
         } catch (RestClientResponseException e) {
-            // 4xx = refused (e.g. 409 invalid_state, 422 amount_invalid), 5xx = acquirer broken
-            throw new PaymentProcessorException(operation + " refused by acquirer: HTTP " + e.getStatusCode().value()
-                    + " " + e.getResponseBodyAsString(), e);
+            // 422 (amount_invalid: more than is left, e.g. a concurrent refund took the rest) -> our 409. 409
+            // invalid_state (the acquirer's state differs from ours), 401 (our key), 5xx (acquirer broken) -> 502.
+            String message = operation + " refused by acquirer: HTTP " + e.getStatusCode().value() + " " + e.getResponseBodyAsString();
+            int status = e.getStatusCode().value();
+            throw status == 422 ? PaymentProcessorException.refused(message, e)
+                    : new PaymentProcessorException(message, e);
         } catch (RestClientException e) {
             // timeout / connection refused: outcome UNKNOWN. Safe to retry with the same key.
             throw new PaymentProcessorException(operation + ": no answer from acquirer (" + e.getMessage() + ")", e);

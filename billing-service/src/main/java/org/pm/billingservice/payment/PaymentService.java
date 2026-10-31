@@ -45,6 +45,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  *      The payment event goes into the outbox in this same transaction (ADR 0008): no change without its
  *      event, no event without its change.
  *
+ * Step 3 locks the payment row (SELECT ... FOR UPDATE, Day 21): concurrent requests on one payment record one after
+ * another; @Version and the retry stay for the paths that don't lock (acquirer webhooks).
  * If step 2 succeeds and step 3 fails (crash, DB down), the processor and our DB disagree until the
  * client retries with the same Idempotency-Key. Every step is safe to run again (ADR 0007):
  *   - authorize / refund: the new row's id is derived from the client's key, so a retry finds it
@@ -148,7 +150,7 @@ public class PaymentService {
         RiskVerdict verdict = riskAssessor.assess(created);
         if (verdict.decision() != RiskDecision.ALLOW) {
             return retryOnVersionConflict(() -> transactionTemplate.execute(tx -> {
-                Payment payment = load(created.getId());
+                Payment payment = lockForRecording(created.getId());
                 if (payment.getStatus() != PaymentStatus.CREATED) {
                     return payment; // a concurrent attempt of this same request recorded its verdict first
                 }
@@ -167,7 +169,7 @@ public class PaymentService {
         AuthorizationResult result = paymentProcessor.authorize("authorize:" + paymentId, paymentId, amount, paymentMethodToken);
 
         Payment recorded = retryOnVersionConflict(() -> transactionTemplate.execute(tx -> {
-            Payment payment = load(created.getId());
+            Payment payment = lockForRecording(created.getId());
             if (payment.getStatus() == PaymentStatus.PENDING_REVIEW) {
                 // an earlier attempt of this request was HELD (e.g. fallback while the engine was down): the hold
                 // stands - authorizing now would skip the review
@@ -207,7 +209,7 @@ public class PaymentService {
 
         if (decision == Payment.ReviewDecision.REJECTED) {
             return retryOnVersionConflict(() -> transactionTemplate.execute(tx -> {
-                Payment payment = load(paymentId);
+                Payment payment = lockForRecording(paymentId);
                 payment.review(decision, reviewer, note, clock.instant());
                 paymentEvents.reviewed(payment);
                 paymentEvents.failed(payment);
@@ -219,7 +221,7 @@ public class PaymentService {
                 current.getCardToken());
         try {
             return retryOnVersionConflict(() -> transactionTemplate.execute(tx -> {
-                Payment payment = load(paymentId);
+                Payment payment = lockForRecording(paymentId);
                 if (payment.getReviewDecision() == Payment.ReviewDecision.APPROVED && sameOutcome(payment, result)) {
                     return payment; // a concurrent approval recorded this already (same processor key: one hold)
                 }
@@ -256,7 +258,7 @@ public class PaymentService {
         paymentProcessor.capture(captureKey(paymentId, captureAmount), current.getProcessorReference(), captureAmount);
 
         return retryOnVersionConflict(() -> transactionTemplate.execute(tx -> {
-            Payment payment = load(paymentId);
+            Payment payment = lockForRecording(paymentId);
             if (payment.getStatus() == PaymentStatus.CAPTURED && payment.getCapturedAmount().equals(captureAmount)) {
                 // Already recorded: by the acquirer's webhook, or by a concurrent request for the same capture
                 // (same processor key, so the acquirer captured once). Either way this capture happened, once.
@@ -277,7 +279,7 @@ public class PaymentService {
         paymentProcessor.voidAuthorization(voidKey(paymentId), current.getProcessorReference());
 
         return retryOnVersionConflict(() -> transactionTemplate.execute(tx -> {
-            Payment payment = load(paymentId);
+            Payment payment = lockForRecording(paymentId);
             if (payment.getStatus() == PaymentStatus.VOIDED) {
                 return payment; // already recorded (webhook or a concurrent void): same processor key, one void
             }
@@ -309,7 +311,7 @@ public class PaymentService {
         // @Version check fails; re-reading and applying again is correct, because refunds add up and
         // the processor already checked the total. Returning 409 here would lose a real refund.
         return retryOnVersionConflict(() -> transactionTemplate.execute(tx -> {
-            Payment payment = load(paymentId);
+            Payment payment = lockForRecording(paymentId);
             payment.refund(refundAmount);
             // today's market rate: the foreign money leaves our position at it (1 for same-currency payments)
             FxRate refundRate = fxRates.current(payment.getAmount().currency(), payment.getBookCurrency());
@@ -333,7 +335,7 @@ public class PaymentService {
             return earlier.get(); // a previous attempt finished; only its response was lost
         }
         return retryOnVersionConflict(() -> transactionTemplate.execute(tx -> {
-            Payment payment = load(paymentId);
+            Payment payment = lockForRecording(paymentId);
             Money chargebackAmount = amount != null ? amount : payment.getRefundableAmount();
             payment.chargeBack(chargebackAmount);
             // today's market rate: the foreign money leaves our position at it (1 for same-currency payments)
@@ -608,6 +610,11 @@ public class PaymentService {
                 }
             }
         }
+    }
+
+    /** In the short "record the result" transactions: the row stays locked until commit (see findByIdForUpdate). */
+    private Payment lockForRecording(UUID paymentId) {
+        return paymentRepository.findByIdForUpdate(paymentId).orElseThrow(() -> new PaymentNotFoundException(paymentId));
     }
 
     private Payment load(UUID paymentId) {

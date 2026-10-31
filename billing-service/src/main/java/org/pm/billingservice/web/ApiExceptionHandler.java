@@ -131,9 +131,20 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return problem;
     }
 
-    /** The processor refused or failed. Not the client's fault, and not ours: 502 Bad Gateway. */
+    /**
+     * The processor failed: not the client's fault, and not ours -> 502 Bad Gateway.
+     * The processor refused on purpose (Day 21): the payment changed under the client, e.g. a concurrent refund took
+     * what was left -> 409, re-read the payment.
+     */
     @ExceptionHandler(PaymentProcessorException.class)
     ProblemDetail processorFailed(PaymentProcessorException e) {
+        if (e.isRefused()) {
+            log.info("payment processor refused: {}", e.getMessage());
+            ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,
+                    "the payment processor refused: the payment changed (e.g. a concurrent refund) - re-read it");
+            problem.setTitle("Refused by the payment processor");
+            return problem;
+        }
         log.warn("payment processor error: {}", e.getMessage());
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_GATEWAY, "the payment processor refused the request");
         problem.setTitle("Payment processor error");

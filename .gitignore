@@ -6,3 +6,6 @@ learning-notes/
 # OpenTelemetry Java agent (Day 20a): downloaded by monitoring/otel/get-agent.sh, not committed
 monitoring/otel/opentelemetry-javaagent.jar
 monitoring/otel/opentelemetry-javaagent.jar.part
+
+# property-test example databases (Day 21): local, regenerated
+.jqwik-database

@@ -139,6 +139,13 @@
             <artifactId>protobuf-java</artifactId>
             <version>4.29.1</version>
         </dependency>
+        <!-- Day 21: property-based tests (Money math, payment state machine) - a JUnit Platform engine -->
+        <dependency>
+            <groupId>net.jqwik</groupId>
+            <artifactId>jqwik</artifactId>
+            <version>1.9.2</version>
+            <scope>test</scope>
+        </dependency>
         <!-- Day 20a: trace context through the outbox (API only; the Java agent provides the implementation) -->
         <dependency>
             <groupId>io.opentelemetry</groupId>

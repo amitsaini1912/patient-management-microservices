@@ -1,0 +1,142 @@
+# promtool unit tests for alerts.yml (ADR 0032): each alert fires on the failure it is for and stays quiet otherwise.
+#   docker run --rm -v "$PWD/monitoring:/m" --entrypoint promtool prom/prometheus:v2.55.1 test rules /m/alerts.test.yml
+rule_files:
+  - alerts.yml
+evaluation_interval: 15s
+
+tests:
+  # outbox: one FAILED row fires after 1m; a lag of 30 s doesn't, 2 min does
+  - interval: 15s
+    input_series:
+      - series: 'billing_outbox_failed{service="billing-service"}'
+        values: '0 0 1x20'
+      - series: 'billing_outbox_oldest_pending_age_seconds{service="billing-service"}'
+        values: '30x8 120x20'
+    alert_rule_test:
+      - {eval_time: 30s, alertname: BillingOutboxEventRejected, exp_alerts: []}
+      - eval_time: 2m
+        alertname: BillingOutboxEventRejected
+        exp_alerts:
+          - exp_labels: {severity: critical, service: billing-service}
+            exp_annotations:
+              summary: "1 payment event(s) Kafka refused permanently"
+              action: "Look at outbox_event WHERE status='FAILED' (last_error); fix, then UPDATE ... SET status='PENDING'."
+      - {eval_time: 1m30s, alertname: BillingOutboxLagging, exp_alerts: []}   # 120 s seen, but not yet for 2m
+      - eval_time: 4m30s
+        alertname: BillingOutboxLagging
+        exp_alerts:
+          - exp_labels: {severity: warning, service: billing-service}
+            exp_annotations:
+              summary: "Oldest unsent payment event is 2m 0s old"
+              action: "Is Kafka up? billing logs 'outbox relay'."
+
+  # risk: breaker open for > 1m; fallback share 50% for 5m fires, 10% doesn't; "disabled" fallbacks don't count
+  - interval: 1m
+    input_series:
+      - series: 'billing_risk_circuit_state{service="billing-service"}'
+        values: '0 1 1 1 1'
+      - series: 'billing_risk_decisions_total{service="billing-service",source="ENGINE",fallback_reason="none"}'
+        values: '0+60x15'
+      - series: 'billing_risk_decisions_total{service="billing-service",source="FALLBACK",fallback_reason="timeout"}'
+        values: '0+60x15'
+      - series: 'billing_risk_decisions_total{service="other",source="ENGINE",fallback_reason="none"}'
+        values: '0+90x15'
+      - series: 'billing_risk_decisions_total{service="other",source="FALLBACK",fallback_reason="disabled"}'
+        values: '0+600x15'
+      - series: 'billing_risk_decisions_total{service="other",source="FALLBACK",fallback_reason="busy"}'
+        values: '0+10x15'
+    alert_rule_test:
+      - {eval_time: 1m, alertname: RiskEngineCircuitOpen, exp_alerts: []}
+      - eval_time: 3m
+        alertname: RiskEngineCircuitOpen
+        exp_alerts:
+          - exp_labels: {severity: warning, service: billing-service}
+            exp_annotations:
+              summary: "billing is not calling the risk engine - payments get the fallback rules (ADR 0017)"
+              action: "Risk engine /ready? Redis (its features)? billing logs 'risk engine circuit breaker'."
+      - eval_time: 12m
+        alertname: RiskFallbackRateHigh
+        exp_alerts:   # billing-service: 50% -> fires; "other": 10 busy of 700 incl. 600 disabled = 1.4% -> quiet
+          - exp_labels: {severity: warning, service: billing-service}
+            exp_annotations:
+              summary: "50% of payments decided WITHOUT the risk engine"
+              action: "fallback_reason says why: timeout / busy (capacity, ADR 0028) / circuit_open / http_503."
+
+  # stale payments: unresolved inquiries for 15 min fire; resolved ones (not_received) never do
+  - interval: 1m
+    input_series:
+      - series: 'billing_payments_stale_resolved_total{service="billing-service",outcome="unresolved"}'
+        values: '0+1x40'
+      - series: 'billing_payments_stale_resolved_total{service="billing-service",outcome="not_received"}'
+        values: '0+50x40'
+      - series: 'billing_payments_stale_resolved_total{service="billing-service",outcome="authorized_not_voided"}'
+        values: '0 0 0 1x40'
+    alert_rule_test:
+      - {eval_time: 10m, alertname: StalePaymentsUnresolved, exp_alerts: []}
+      - eval_time: 31m
+        alertname: StalePaymentsUnresolved
+        exp_alerts:
+          - exp_labels: {severity: warning, service: billing-service}
+            exp_annotations:
+              summary: "Payments with an unknown authorization outcome are not being resolved"
+              action: "Acquirer down or refusing inquiries? Check billing logs 'stale payment'."
+      - eval_time: 5m
+        alertname: StaleAuthorizationNotVoided
+        exp_alerts:
+          - exp_labels: {severity: warning, service: billing-service}
+            exp_annotations:
+              summary: "A stale payment was authorized but could not be voided - money held on a card"
+              action: "Void it by hand (POST /api/payments/{id}/void) or let the expiry job release it."
+
+  # security: 6 rejected webhooks in 10 min fire, 3 don't; 11 lockouts fire; a Redis breaker open 2m+ fires
+  - interval: 1m
+    input_series:
+      - series: 'billing_webhooks_signature_total{service="billing-service",key="none"}'
+        values: '0 1 2 3 3 3 3 3 9 9 9 9'
+      - series: 'billing_webhooks_signature_total{service="billing-service",key="current"}'
+        values: '0+100x11'
+      - series: 'auth_login_attempts_total{service="auth-service",outcome="locked_now"}'
+        values: '0 0 0 0 0 0 0 0 0 0 11'
+      - series: 'gateway_ratelimit_redis_circuit_state{service="api-gateway"}'
+        values: '0 1 1 1 1 1'
+      - series: 'billing_ratelimit_card_circuit_state{service="billing-service"}'
+        values: '0 0 0 0 0 0'
+    alert_rule_test:
+      - {eval_time: 5m, alertname: WebhookSignatureFailures, exp_alerts: []}
+      - eval_time: 9m
+        alertname: WebhookSignatureFailures
+        exp_alerts:
+          - exp_labels: {severity: warning, service: billing-service}
+            exp_annotations:
+              summary: "9 webhooks rejected (401) in 10 min"
+              action: "Secret mismatch (rotation step missed?) or forgery - billing logs 'rejected webhook'."
+      - eval_time: 10m
+        alertname: LoginLockoutSpike
+        exp_alerts:
+          - exp_labels: {severity: warning, service: auth-service}
+            exp_annotations:
+              summary: "11 accounts locked in 10 min"
+              action: "Check the source IPs at the gateway; per-IP login limit is 10 then 1/6 s."
+      - eval_time: 4m
+        alertname: RateLimitsNotEnforced
+        exp_alerts:   # only the gateway: billing's card breaker stays closed
+          - exp_labels: {severity: warning, service: api-gateway}
+            exp_annotations:
+              summary: "Rate limits are not enforced on api-gateway (Redis breaker open)"
+              action: "Is Redis up?"
+
+  # availability
+  - interval: 30s
+    input_series:
+      - series: 'up{job="spring",service="card-vault"}'
+        values: '1 1 0 0 0 0'
+      - series: 'up{job="spring",service="billing-service"}'
+        values: '1 1 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 2m30s
+        alertname: ServiceDown
+        exp_alerts:
+          - exp_labels: {severity: critical, job: spring, service: card-vault}
+            exp_annotations:
+              summary: "card-vault is not answering Prometheus"
+              action: "Process / container running? Its /actuator/health (or the risk engine's /ready)?"

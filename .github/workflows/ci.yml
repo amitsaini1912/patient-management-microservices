@@ -87,6 +87,17 @@ jobs:
 
 
 
+  # ADR 0032: the Prometheus alert rules parse and fire on the failures they are for (promtool unit tests)
+  monitoring:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Check config + alert rules, run the rule tests
+        run: |
+          docker run --rm -v "$PWD/monitoring:/m" --entrypoint promtool prom/prometheus:v2.55.1 check rules /m/alerts.yml
+          docker run --rm -v "$PWD/monitoring:/m" --entrypoint promtool prom/prometheus:v2.55.1 test rules /m/alerts.test.yml
+
   docker-build-push:
     runs-on: ubuntu-latest
     needs: build-and-test

@@ -231,7 +231,8 @@ sh load-test/stop-stack.sh --wipe
 
 `demo.sh` logs in, creates a billing account over gRPC, tokenizes a card, authorizes (risk check + card network),
 shows that a retry with the same key replays, captures, refunds part of it, reads the payment back, and verifies the
-audit chain. Then: Grafana at http://localhost:3000 (dashboard "Payments overview"), Prometheus at :9090.
+audit chain. Then: Grafana at http://localhost:3000 (dashboard "Payments overview"), Prometheus at :9090 (alert rules on
+/alerts - ADR 0032, promtool-tested).
 
 Development without the scripts: `cp .env.example .env`, `docker compose up -d billing-db vault-db kafka redis`, run a
 service with `sh ./mvnw spring-boot:run`. Tracing: `docker compose up -d jaeger` and `monitoring/otel/run-traced.sh`.
@@ -268,13 +269,15 @@ CI runs every service's tests on each push, in parallel, with coverage in the jo
 
 ## Documents
 
-- [docs/adr/](docs/adr/) — 31 architecture decisions: what was chosen, the alternatives, and the cost
+- [docs/adr/](docs/adr/) — 32 architecture decisions: what was chosen, the alternatives, and the cost
 - [docs/PERFORMANCE.md](docs/PERFORMANCE.md) — k6 load test, the bottleneck, before/after
 - [docs/CHAOS.md](docs/CHAOS.md) — six failures under load, what happened, what was fixed
 - [docs/ROUNDING.md](docs/ROUNDING.md) — money in minor units, rounding and allocation rules
 
 ## Known limitations (honest list)
 
+- **Alerts fire, nobody is paged**: 11 promtool-tested alert rules (ADR 0032) but no Alertmanager; no alert on
+  reconciliation breaks or dead-letter topics (no metric for them).
 - **Abandoned authorizations wait for the 7-day expiry.** Payments left CREATED by an acquirer outage are settled
   after 15 minutes (ADR 0024), but a payment billing recorded as AUTHORIZED whose client then gave up (59 in a 60 s
   freeze) looks like any uncaptured authorization and is released only by the expiry job.

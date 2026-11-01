@@ -116,6 +116,7 @@ services:
     command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=7d"]
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro          # ADR 0032
       - prometheus-data:/prometheus
     extra_hosts:
       - "host.docker.internal:host-gateway"   # Linux: reach services started on the host

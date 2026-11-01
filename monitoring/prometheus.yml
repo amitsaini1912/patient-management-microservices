@@ -4,6 +4,10 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+# ADR 0032: alert rules (tested: alerts.test.yml). No Alertmanager yet - firing alerts are visible on /alerts only.
+rule_files:
+  - /etc/prometheus/alerts.yml
+
 scrape_configs:
   - job_name: spring
     metrics_path: /actuator/prometheus

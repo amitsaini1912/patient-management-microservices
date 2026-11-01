@@ -1,0 +1,107 @@
+# ADR 0032: alert rules for the metrics the earlier days added - every one is a failure we have seen in a test, a load
+# run or a chaos run, or a metric built so someone would look at it. Evaluated by Prometheus (see prometheus.yml);
+# there is no Alertmanager yet, so firing alerts show on http://localhost:9090/alerts (and Grafana) but notify nobody.
+# Tested with promtool: monitoring/alerts.test.yml (CI job "monitoring").
+groups:
+  - name: payments
+    rules:
+      - alert: BillingOutboxEventRejected
+        # Kafka refused an event for good (e.g. too large): it is FAILED and will never be sent (ADR 0008)
+        expr: max by (service) (billing_outbox_failed) > 0
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $value }} payment event(s) Kafka refused permanently"
+          action: "Look at outbox_event WHERE status='FAILED' (last_error); fix, then UPDATE ... SET status='PENDING'."
+
+      - alert: BillingOutboxLagging
+        # Day 23: Kafka down -> events wait in the outbox (nothing lost, but analytics and risk labels are behind)
+        expr: max by (service) (billing_outbox_oldest_pending_age_seconds) > 60
+        for: 2m
+        labels: {severity: warning}
+        annotations:
+          summary: "Oldest unsent payment event is {{ $value | humanizeDuration }} old"
+          action: "Is Kafka up? billing logs 'outbox relay'."
+
+      - alert: PatientOutboxBacklog
+        expr: max by (service) (patient_outbox_pending) > 100
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $value }} patient events not on Kafka yet (ADR 0030)"
+          action: "Is Kafka up? patient_event_outbox.last_error says why."
+
+      - alert: StalePaymentsUnresolved
+        # ADR 0024: the acquirer can't answer status inquiries -> payments stay CREATED with an unknown outcome
+        expr: sum by (service) (increase(billing_payments_stale_resolved_total{outcome="unresolved"}[15m])) > 0
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "Payments with an unknown authorization outcome are not being resolved"
+          action: "Acquirer down or refusing inquiries? Check billing logs 'stale payment'."
+
+      - alert: StaleAuthorizationNotVoided
+        # authorized at the acquirer, nobody told the client, and the void failed: a hold stays on the card (7 days)
+        expr: sum by (service) (increase(billing_payments_stale_resolved_total{outcome="authorized_not_voided"}[1h])) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: "A stale payment was authorized but could not be voided - money held on a card"
+          action: "Void it by hand (POST /api/payments/{id}/void) or let the expiry job release it."
+
+  - name: risk
+    rules:
+      - alert: RiskEngineCircuitOpen
+        expr: max by (service) (billing_risk_circuit_state) == 1
+        for: 1m
+        labels: {severity: warning}
+        annotations:
+          summary: "billing is not calling the risk engine - payments get the fallback rules (ADR 0017)"
+          action: "Risk engine /ready? Redis (its features)? billing logs 'risk engine circuit breaker'."
+
+      - alert: RiskFallbackRateHigh
+        # Day 22: overload silently skipped the fraud check for 66% of payments while k6 showed no errors
+        expr: |
+          sum by (service) (rate(billing_risk_decisions_total{source="FALLBACK", fallback_reason!="disabled"}[5m]))
+            / sum by (service) (rate(billing_risk_decisions_total[5m])) > 0.2
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of payments decided WITHOUT the risk engine"
+          action: "fallback_reason says why: timeout / busy (capacity, ADR 0028) / circuit_open / http_503."
+
+  - name: security
+    rules:
+      - alert: WebhookSignatureFailures
+        # ADR 0029: wrong secret after a rotation, or someone posting forged webhooks
+        expr: sum by (service) (increase(billing_webhooks_signature_total{key="none"}[10m])) > 5
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $value }} webhooks rejected (401) in 10 min"
+          action: "Secret mismatch (rotation step missed?) or forgery - billing logs 'rejected webhook'."
+
+      - alert: LoginLockoutSpike
+        # ADR 0027: many accounts locked at once = credential stuffing (or a broken client)
+        expr: sum by (service) (increase(auth_login_attempts_total{outcome="locked_now"}[10m])) > 10
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $value }} accounts locked in 10 min"
+          action: "Check the source IPs at the gateway; per-IP login limit is 10 then 1/6 s."
+
+      - alert: RateLimitsNotEnforced
+        # ADR 0025: Redis down -> breakers open -> rate limits fail open (card-testing protection off)
+        expr: max by (service) (gateway_ratelimit_redis_circuit_state or billing_ratelimit_card_circuit_state) == 1
+        for: 2m
+        labels: {severity: warning}
+        annotations:
+          summary: "Rate limits are not enforced on {{ $labels.service }} (Redis breaker open)"
+          action: "Is Redis up?"
+
+  - name: availability
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $labels.service }} is not answering Prometheus"
+          action: "Process / container running? Its /actuator/health (or the risk engine's /ready)?"

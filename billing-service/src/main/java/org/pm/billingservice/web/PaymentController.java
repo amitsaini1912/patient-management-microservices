@@ -30,8 +30,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/payments")
 public class PaymentController {
 
-    static final String ROLE_HEADER = "X-User-Role";
-    static final String ADMIN = "ADMIN";
+    static final String ROLE_HEADER = Roles.ROLE_HEADER;
+    static final String ADMIN = Roles.ADMIN;
 
     private final PaymentService paymentService;
 
@@ -129,9 +129,7 @@ public class PaymentController {
     }
 
     private static void requireAdmin(HttpServletRequest http, String what) {
-        if (!ADMIN.equals(http.getHeader(ROLE_HEADER))) {
-            throw new ForbiddenException(what + " needs the ADMIN role");
-        }
+        Roles.requireAdmin(http, what);
     }
 
     @GetMapping("/{id}/refunds")

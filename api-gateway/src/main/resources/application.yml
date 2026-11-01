@@ -78,6 +78,17 @@ spring:
                 redis-rate-limiter.replenishRate: ${GATEWAY_PAYMENTS_RATE_PER_SECOND:5}
                 redis-rate-limiter.burstCapacity: ${GATEWAY_PAYMENTS_BURST:10}
 
+        # ADR 0031: billing's ops endpoints, logged-in users only; billing itself allows ADMIN only (X-User-Role, set
+        # here from the token - a client's own X-User-Role is stripped). GET /api/fx/rates/{base}/{quote} is open to
+        # any logged-in user. No rate limit: a handful of admin calls a day.
+        - id: billing-service-ops-route
+          uri: ${BILLING_SERVICE_URL:http://billing-service:4001}
+          predicates:
+            - Path=/api/reconciliation/**,/api/fx/**
+          filters:
+            - StripPrefix=1   # /api/fx/rates -> /fx/rates, /api/reconciliation/runs -> /reconciliation/runs
+            - JwtValidation
+
         # Route for POST /api/cards to card-vault (ADR 0013): the patient app sends the card number HERE, never to
         # billing. Only tokenization is routed - GET /cards/{token} and /detokenize are not reachable from outside.
         # The gateway calls the vault with its OWN key (TOKENIZE only, from env); SetRequestHeader overwrites any

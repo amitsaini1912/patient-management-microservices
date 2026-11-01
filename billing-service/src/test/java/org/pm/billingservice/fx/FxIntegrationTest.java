@@ -195,6 +195,19 @@ class FxIntegrationTest {
         assertThat(get("/fx/rates/USD/EUR").status()).isEqualTo(422); // no cross rate on file
     }
 
+    /** ADR 0031: a rate changes what every foreign payment books, a revaluation posts entries - ADMIN only. Reading is open. */
+    @Test
+    void fxWritesAreAdminOnlyReadsAreNot() throws Exception {
+        for (String path : new String[] {"/fx/rates", "/fx/revaluations"}) {
+            HttpResponse<String> asUser = http.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
+                    .header("Content-Type", "application/json").header("X-User-Role", "USER")
+                    .POST(HttpRequest.BodyPublishers.ofString("{\"base\":\"EUR\",\"quote\":\"INR\",\"rate\":\"1\",\"source\":\"x\"}"))
+                    .build(), HttpResponse.BodyHandlers.ofString());
+            assertThat(asUser.statusCode()).as(path).isEqualTo(403);
+        }
+        assertThat(get("/fx/rates/USD/INR").status()).isEqualTo(200); // no role header at all
+    }
+
     // ---- helpers ----
 
     private Payment captured(String usdAmount) {
@@ -262,6 +275,7 @@ class FxIntegrationTest {
     private Response post(String path, String json) throws Exception {
         HttpRequest.Builder request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
                 .header("Content-Type", "application/json")
+                .header("X-User-Role", "ADMIN")   // FX writes + reconciliation are ADMIN only (ADR 0031)
                 .POST(json == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(json));
         HttpResponse<String> response = http.send(request.build(), HttpResponse.BodyHandlers.ofString());
         return new Response(response.statusCode(), response.body().isEmpty() ? null : objectMapper.readTree(response.body()));

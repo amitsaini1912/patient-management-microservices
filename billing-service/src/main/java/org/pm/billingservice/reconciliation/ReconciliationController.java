@@ -1,5 +1,7 @@
 package org.pm.billingservice.reconciliation;
 
+import jakarta.servlet.http.HttpServletRequest;
+import org.pm.billingservice.web.Roles;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -16,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  *   POST /reconciliation/runs?date=YYYY-MM-DD   run now (re-runs are fine; the latest run counts)
  *   GET  /reconciliation/runs/{date}            the latest run for that UTC day, with its differences
+ * Both ADMIN only (ADR 0031): the books against the acquirer's settlement - finance data, and a run costs work.
  */
 @RestController
 @RequestMapping("/reconciliation/runs")
@@ -30,7 +33,9 @@ public class ReconciliationController {
     }
 
     @PostMapping
-    public ResponseEntity<ReconRun> run(@RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+    public ResponseEntity<ReconRun> run(@RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+                                        HttpServletRequest http) {
+        Roles.requireAdmin(http, "running a reconciliation");
         if (date.isAfter(LocalDate.now(clock.withZone(ZoneOffset.UTC)))) {
             throw new IllegalArgumentException("can't reconcile " + date + ": that day hasn't happened yet (UTC)");
         }
@@ -40,7 +45,9 @@ public class ReconciliationController {
     }
 
     @GetMapping("/{date}")
-    public ResponseEntity<ReconRun> latest(@PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+    public ResponseEntity<ReconRun> latest(@PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+                                           HttpServletRequest http) {
+        Roles.requireAdmin(http, "reading a reconciliation");
         return service.latest(date).map(ResponseEntity::ok).orElse(ResponseEntity.notFound().build());
     }
 }

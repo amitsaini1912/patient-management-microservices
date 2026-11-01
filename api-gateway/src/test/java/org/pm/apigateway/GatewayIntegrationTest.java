@@ -85,6 +85,22 @@ class GatewayIntegrationTest extends GatewayTestSupport {
         assertThat(received.get(0).header("X-User-Role")).isEqualTo("USER");
     }
 
+    /** ADR 0031: billing's ops endpoints are routed, need a login, and a client can't claim ADMIN for itself. */
+    @Test
+    void opsRoutesReachBillingWithTheRoleFromTheTokenOnly() {
+        web.post().uri("/api/fx/rates").exchange().expectStatus().isUnauthorized();          // no token
+        web.get().uri("/api/reconciliation/runs/2026-11-01").exchange().expectStatus().isUnauthorized();
+        assertThat(received).isEmpty();
+
+        web.post().uri("/api/reconciliation/runs?date=2026-11-01").header("Authorization", "Bearer valid-" + user())
+                .header("X-User-Role", "ADMIN").exchange().expectStatus().isOk();
+        web.get().uri("/api/fx/rates/USD/INR").header("Authorization", "Bearer valid-" + user()).exchange()
+                .expectStatus().isOk();
+
+        assertThat(received).extracting(Received::path).containsExactly("/reconciliation/runs", "/fx/rates/USD/INR");
+        assertThat(received.get(0).header("X-User-Role")).isEqualTo("USER"); // the forged ADMIN never reaches billing
+    }
+
     @Test
     void forgedIdentityIsStrippedEvenOnRoutesWithoutJwt() {
         // /api-docs/patients has no JwtValidation; the global filter still removes the client's X-User-Id

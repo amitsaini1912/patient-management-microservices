@@ -1,5 +1,7 @@
 package org.pm.billingservice.fx;
 
+import jakarta.servlet.http.HttpServletRequest;
+import org.pm.billingservice.web.Roles;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -54,7 +56,8 @@ public class FxController {
 
     @PostMapping("/rates")
     @ResponseStatus(HttpStatus.CREATED)
-    public RateView record(@Valid @RequestBody NewRate request) {
+    public RateView record(@Valid @RequestBody NewRate request, HttpServletRequest http) {
+        Roles.requireAdmin(http, "recording an FX rate"); // ADR 0031: a rate changes what every foreign payment books
         return RateView.of(rates.record(Currency.getInstance(request.base()), Currency.getInstance(request.quote()),
                 new BigDecimal(request.rate()), request.source(), request.asOf()));
     }
@@ -78,7 +81,8 @@ public class FxController {
     }
 
     @PostMapping("/revaluations")
-    public RevaluationView revalue() {
+    public RevaluationView revalue(HttpServletRequest http) {
+        Roles.requireAdmin(http, "an FX revaluation"); // posts ledger entries
         return RevaluationView.of(revaluation.revalue());
     }
 

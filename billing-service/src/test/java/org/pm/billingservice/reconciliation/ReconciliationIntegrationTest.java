@@ -93,7 +93,8 @@ class ReconciliationIntegrationTest {
         assertThat(item(run, "re_we_lost").get("transactionType").asText()).isEqualTo("REFUND");
 
         // the same result is stored and readable
-        HttpResponse<String> stored = http.send(HttpRequest.newBuilder(uri("/reconciliation/runs/" + today)).GET().build(),
+        HttpResponse<String> stored = http.send(HttpRequest.newBuilder(uri("/reconciliation/runs/" + today))
+                        .header("X-User-Role", "ADMIN").GET().build(),
                 HttpResponse.BodyHandlers.ofString());
         assertThat(stored.statusCode()).isEqualTo(200);
         assertThat(classified(json(stored), new ArrayList<>(mine.keySet()))).isEqualTo(mine);
@@ -129,10 +130,26 @@ class ReconciliationIntegrationTest {
         assertThat(json(post(today.minusDays(3))).get("status").asText()).isEqualTo("COMPLETED");
     }
 
+    /** ADR 0031: finance data and an expensive run - ADMIN only, whatever else the caller sends. */
+    @Test
+    void reconciliationIsAdminOnly() throws Exception {
+        for (String role : new String[] {null, "USER", "admin"}) {
+            HttpRequest.Builder run = HttpRequest.newBuilder(uri("/reconciliation/runs?date=" + today))
+                    .POST(HttpRequest.BodyPublishers.noBody());
+            HttpRequest.Builder read = HttpRequest.newBuilder(uri("/reconciliation/runs/" + today)).GET();
+            if (role != null) {
+                run.header("X-User-Role", role);
+                read.header("X-User-Role", role);
+            }
+            assertThat(http.send(run.build(), HttpResponse.BodyHandlers.ofString()).statusCode()).as(role).isEqualTo(403);
+            assertThat(http.send(read.build(), HttpResponse.BodyHandlers.ofString()).statusCode()).as(role).isEqualTo(403);
+        }
+    }
+
     @Test
     void futureDayIs400UnknownDayIs404() throws Exception {
         assertThat(post(today.plusDays(1)).statusCode()).isEqualTo(400);
-        assertThat(http.send(HttpRequest.newBuilder(uri("/reconciliation/runs/2001-01-01")).GET().build(),
+        assertThat(http.send(HttpRequest.newBuilder(uri("/reconciliation/runs/2001-01-01")).header("X-User-Role", "ADMIN").GET().build(),
                 HttpResponse.BodyHandlers.ofString()).statusCode()).isEqualTo(404);
     }
 
@@ -166,7 +183,7 @@ class ReconciliationIntegrationTest {
     }
 
     private HttpResponse<String> post(LocalDate date) throws Exception {
-        return http.send(HttpRequest.newBuilder(uri("/reconciliation/runs?date=" + date))
+        return http.send(HttpRequest.newBuilder(uri("/reconciliation/runs?date=" + date)).header("X-User-Role", "ADMIN")
                 .POST(HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofString());
     }
 

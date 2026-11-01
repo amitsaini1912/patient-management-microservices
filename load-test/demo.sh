@@ -54,8 +54,8 @@ step "7. read the payment back"
 curl -sf "$GW/api/payments/$PAYMENT" -H "$AUTH" \
   | json '"%s: amount %s, captured %s, refunded %s" % (d["status"], d["amount"], d["capturedAmount"], d["refundedAmount"])'
 
-step "8. audit log: every change above is in an HMAC hash chain - does it still verify? (billing, internal port)"
-curl -sf http://localhost:4001/audit/verify | json 'd'
+step "8. audit log: every change above is in an HMAC hash chain, anchored in Kafka - does it still verify? (ADMIN, via the gateway)"
+curl -sf "$GW/api/audit/verify" -H "$AUTH" | json 'd'
 
 printf '\nMore to look at: Grafana http://localhost:3000 (dashboard "Payments overview"), Prometheus http://localhost:9090,\n'
 printf 'load: k6 run -e PROFILE=smoke load-test/checkout.js, failures: sh load-test/chaos.sh kafka (docs/CHAOS.md)\n'

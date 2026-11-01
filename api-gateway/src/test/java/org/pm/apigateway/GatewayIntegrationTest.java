@@ -96,8 +96,11 @@ class GatewayIntegrationTest extends GatewayTestSupport {
                 .header("X-User-Role", "ADMIN").exchange().expectStatus().isOk();
         web.get().uri("/api/fx/rates/USD/INR").header("Authorization", "Bearer valid-" + user()).exchange()
                 .expectStatus().isOk();
+        web.get().uri("/api/audit/verify").header("Authorization", "Bearer valid-" + user()).exchange()   // ADR 0033
+                .expectStatus().isOk();
 
-        assertThat(received).extracting(Received::path).containsExactly("/reconciliation/runs", "/fx/rates/USD/INR");
+        assertThat(received).extracting(Received::path)
+                .containsExactly("/reconciliation/runs", "/fx/rates/USD/INR", "/audit/verify");
         assertThat(received.get(0).header("X-User-Role")).isEqualTo("USER"); // the forged ADMIN never reaches billing
     }
 

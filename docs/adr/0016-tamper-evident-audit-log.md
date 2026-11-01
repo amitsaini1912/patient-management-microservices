@@ -39,7 +39,7 @@ entered FX rates had no "who" and no protection.
   at scale: per-partition chains, batching (Merkle trees), or appending from the outbox asynchronously.
 - Billing needs `BILLING_AUDIT_KEY` to start.
 - Limits (honest):
-  - **DB access alone can silently cut off the newest rows**: delete the last rows AND move the head back to the
+  - **(Closed by ADR 0033, anchoring - except the last <= 5 minutes.)** **DB access alone can silently cut off the newest rows**: delete the last rows AND move the head back to the
     new last row — every remaining hash is still valid (shown by hand on Day 13). Only an outside copy of the head
     catches this: publish the head hash regularly where the DBA can't write ("anchoring": another system, Kafka,
     a signed log). Editing, deleting or inserting rows in the middle IS caught without that.

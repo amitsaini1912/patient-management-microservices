@@ -379,7 +379,8 @@ class AuditIntegrationTest {
     }
 
     private HttpResponse<String> get(String path) throws Exception {
-        return http.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + path)).GET().build(),
+        return http.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
+                        .header("X-User-Role", "ADMIN").GET().build(),   // /audit is ADMIN only (ADR 0033)
                 HttpResponse.BodyHandlers.ofString());
     }
 

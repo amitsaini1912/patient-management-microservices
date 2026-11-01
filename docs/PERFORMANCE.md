@@ -169,3 +169,11 @@ skipped it, and the fallback rules take ~6 ms. p95 and p99 went down.
   The cause was the risk engine's CPU per decision. Fixed: 45 → 23 ms, and the rate at which every payment is still
   risk-checked doubled (15 → 30 checkouts/s).
 - Found 3 card-number-guard bugs on the way; one sent 0.44% of cards to fallback rules on every payment.
+
+## Update 2026-11-01: 4 risk engine workers (payment-risk-engine ADR 0011)
+
+Engine alone (`assess.js`, 30 s per rate, same laptop, k6 on it too): one worker held 40/s at p99 196 ms and collapsed
+at 60/s (p99 9.1 s, 496 dropped); **4 workers held 80/s at p99 140 ms** and collapsed at 100/s. The engine image now
+starts 4 workers (Prometheus multiprocess mode, one shared SQLite file). **The checkout test above was not re-run**:
+its 30/s ceiling is the one-worker number until it is.
+

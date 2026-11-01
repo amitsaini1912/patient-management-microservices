@@ -278,8 +278,9 @@ CI runs every service's tests on each push, in parallel, with coverage in the jo
 - **Abandoned authorizations wait for the 7-day expiry.** Payments left CREATED by an acquirer outage are settled
   after 15 minutes (ADR 0024), but a payment billing recorded as AUTHORIZED whose client then gave up (59 in a 60 s
   freeze) looks like any uncaptured authorization and is released only by the expiry job.
-- The risk engine runs **one worker**: ~30 risk-checked payments/s on this laptop; above that billing degrades to
-  its fallback rules (safely, but without the model).
+- The risk engine ran **one worker** in the checkout load test: ~30 risk-checked payments/s on this laptop; above that
+  billing degrades to its fallback rules (safely, but without the model). It now runs 4 workers (engine alone: 80
+  checks/s at p99 140 ms, its ADR 0011); the checkout test has not been repeated with them.
 - Payouts are not modelled (the acquirer's receivable never moves to a bank account); FX rates are entered by hand.
 - The simulator keeps state in memory; card-vault keys come from env (production: KMS/HSM envelope encryption).
 - `patient-service` still writes to Kafka directly (no outbox); `/reconciliation` and `/fx` have no gateway route

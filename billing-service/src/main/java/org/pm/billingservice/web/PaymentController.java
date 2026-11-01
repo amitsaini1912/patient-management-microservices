@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -54,6 +55,16 @@ public class PaymentController {
         Payment payment = paymentService.authorize(IdempotencyFilter.serviceKey(http, idempotencyKey), request.billingAccountId(),
                 Money.parse(request.amount(), request.currency()), request.paymentMethodToken(), context);
         return ResponseEntity.created(URI.create("/payments/" + payment.getId())).body(PaymentResponse.from(payment));
+    }
+
+    /**
+     * The manual-review queue (ADR 0034): payments the risk check held, oldest first, with the reason codes a reviewer
+     * needs. ADMIN only. Then POST /payments/{id}/review decides each one.
+     */
+    @GetMapping("/reviews")
+    public List<PaymentResponse> reviewQueue(@RequestParam(defaultValue = "50") int limit, HttpServletRequest http) {
+        requireAdmin(http, "reading the review queue");
+        return paymentService.pendingReviews(Math.min(Math.max(limit, 1), 200)).stream().map(PaymentResponse::from).toList();
     }
 
     @GetMapping("/{id}")

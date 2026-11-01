@@ -39,3 +39,4 @@ a new ADR supersedes or amends an old one, and the Status column says so (review
 | [0031](0031-admin-only-ops-endpoints.md) | Reconciliation + FX writes ADMIN only, routed through the gateway (last unprotected endpoints) | Accepted |
 | [0032](0032-alert-rules.md) | 11 Prometheus alert rules for the failures we've seen, unit-tested with promtool in CI (no Alertmanager yet) | Accepted |
 | [0033](0033-audit-chain-anchoring.md) | Audit chain head published to Kafka every 5 min; verify catches a cut-off end + rewound head | Accepted |
+| [0034](0034-manual-review-queue.md) | Manual-review queue: GET /payments/reviews (ADMIN), backlog gauges, ReviewQueueWaiting alert | Accepted |

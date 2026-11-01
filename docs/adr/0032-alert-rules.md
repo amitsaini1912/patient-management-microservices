@@ -11,7 +11,8 @@ stale payments, rejected webhooks, account lockouts, open Redis breakers. Nothin
 at the dashboard at the right moment.
 
 ## Decision
-`monitoring/alerts.yml`, loaded by Prometheus (`rule_files`, mounted in compose), 11 rules in 4 groups:
+`monitoring/alerts.yml`, loaded by Prometheus (`rule_files`, mounted in compose), 11 rules in 4 groups (12 since ADR 0034
+added `ReviewQueueWaiting`):
 
 | Alert | Fires when | Severity |
 |---|---|---|

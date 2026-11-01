@@ -125,6 +125,21 @@ tests:
               summary: "Rate limits are not enforced on api-gateway (Redis breaker open)"
               action: "Is Redis up?"
 
+  # review queue: oldest held payment 30 min -> quiet, 2 h for 5 min -> fires
+  - interval: 1m
+    input_series:
+      - series: 'billing_payments_pending_review_oldest_age_seconds{service="billing-service"}'
+        values: '1800x5 7200x10'
+    alert_rule_test:
+      - {eval_time: 4m, alertname: ReviewQueueWaiting, exp_alerts: []}
+      - eval_time: 12m
+        alertname: ReviewQueueWaiting
+        exp_alerts:
+          - exp_labels: {severity: warning, service: billing-service}
+            exp_annotations:
+              summary: "A held payment has waited 2h 0m 0s for a manual review"
+              action: "GET /api/payments/reviews (ADMIN), then POST /api/payments/{id}/review for each."
+
   # availability
   - interval: 30s
     input_series:

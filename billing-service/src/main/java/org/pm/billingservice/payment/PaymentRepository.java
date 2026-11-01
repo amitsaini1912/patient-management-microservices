@@ -41,6 +41,11 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
      * resolver calls the acquirer between reading and recording, and each recording locks the row and re-checks the
      * status. Uses the partial index payment_created_stale_idx (V18).
      */
+    /** The manual-review queue (ADR 0034), oldest first: index payment_pending_review_idx (V14). */
+    @Query(value = "SELECT * FROM payment WHERE status = 'PENDING_REVIEW' ORDER BY created_at, id LIMIT :limit",
+           nativeQuery = true)
+    List<Payment> findPendingReview(@Param("limit") int limit);
+
     @Query(value = """
             SELECT id FROM payment
             WHERE status = 'CREATED' AND created_at < :cutoff

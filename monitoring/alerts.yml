@@ -50,6 +50,15 @@ groups:
 
   - name: risk
     rules:
+      - alert: ReviewQueueWaiting
+        # ADR 0034: a payment held by the risk check waits for a person - the patient can't pay until then
+        expr: max by (service) (billing_payments_pending_review_oldest_age_seconds) > 3600
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "A held payment has waited {{ $value | humanizeDuration }} for a manual review"
+          action: "GET /api/payments/reviews (ADMIN), then POST /api/payments/{id}/review for each."
+
       - alert: RiskEngineCircuitOpen
         expr: max by (service) (billing_risk_circuit_state) == 1
         for: 1m

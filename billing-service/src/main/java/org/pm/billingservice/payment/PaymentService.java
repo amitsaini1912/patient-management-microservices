@@ -362,6 +362,11 @@ public class PaymentService {
         });
     }
 
+    /** Payments the risk check held, waiting for a person, oldest first (ADR 0034). */
+    public List<Payment> pendingReviews(int limit) {
+        return transactionTemplate.execute(tx -> paymentRepository.findPendingReview(limit));
+    }
+
     public Payment get(UUID paymentId) {
         return transactionTemplate.execute(tx -> load(paymentId));
     }

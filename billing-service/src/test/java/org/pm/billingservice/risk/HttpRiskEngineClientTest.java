@@ -34,6 +34,7 @@ class HttpRiskEngineClientTest {
     private final ObjectMapper json = new ObjectMapper();
     private HttpServer engine;
     private final List<Call> calls = new CopyOnWriteArrayList<>();
+    private final List<String> methodsAndUpgrades = new CopyOnWriteArrayList<>();
     private volatile int status = 200;
     private volatile String response = ALLOW;
     private volatile long delayMs = 0;
@@ -43,6 +44,7 @@ class HttpRiskEngineClientTest {
     void start() throws IOException {
         engine = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
         engine.createContext("/", exchange -> {
+            methodsAndUpgrades.add(exchange.getRequestMethod() + " upgrade=" + exchange.getRequestHeaders().getFirst("Upgrade"));
             calls.add(new Call(exchange.getRequestURI().getPath(), exchange.getRequestHeaders().getFirst("X-API-Key"),
                     new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8)));
             try {
@@ -154,6 +156,35 @@ class HttpRiskEngineClientTest {
         RiskProperties noKey = new RiskProperties(true, URI.create("http://localhost:1"), " ", Duration.ofMillis(300),
                 Duration.ofMillis(50), "hospital-main", null, null);
         assertThatThrownBy(() -> new HttpRiskEngineClient(noKey, json)).isInstanceOf(IllegalStateException.class);
+    }
+
+    /** ADR 0026: the startup warm-up - GETs of /ready only (no facts, no key), HTTP/1.1 without an h2c upgrade. */
+    @Test
+    void warmUpCallsReadyOnlyAndSendsNoPayment() {
+        status = 503; // "not ready" still warms the connection
+
+        List<Long> took = client.warmUp(5, Duration.ofSeconds(1));
+
+        assertThat(took).hasSize(5);
+        assertThat(calls).extracting(Call::path).containsOnly("/ready");
+        assertThat(calls).extracting(Call::apiKey).containsOnlyNulls();
+        assertThat(calls).extracting(Call::body).containsOnly("");
+        assertThat(methodsAndUpgrades).containsOnly("GET upgrade=null");
+    }
+
+    @Test
+    void assessUsesHttp11WithoutAnUpgradeAttempt() {
+        client.assess(RiskTestPayments.inr(100_00), Duration.ofMillis(300));
+        assertThat(methodsAndUpgrades).containsExactly("POST upgrade=null");
+    }
+
+    @Test
+    void warmUpGivesUpAtOnceWhenTheEngineIsNotThere() {
+        HttpRiskEngineClient nobodyHome = client(URI.create("http://localhost:1"));
+        long start = System.nanoTime();
+
+        assertThat(nobodyHome.warmUp(10, Duration.ofSeconds(1))).isEmpty();
+        assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofSeconds(2));
     }
 
     private HttpRiskEngineClient client(URI base) {

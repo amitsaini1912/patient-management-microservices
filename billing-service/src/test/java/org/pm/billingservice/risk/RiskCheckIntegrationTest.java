@@ -49,6 +49,7 @@ class RiskCheckIntegrationTest {
     private static final String CARD = "pm_card_visa";
     private static final HttpServer ENGINE;
     private static final List<JsonNode> REQUESTS = new CopyOnWriteArrayList<>();
+    private static final java.util.concurrent.atomic.AtomicInteger READY_CALLS = new java.util.concurrent.atomic.AtomicInteger();
     private static volatile int status;
     private static volatile String action;
     private static volatile long delayMs;
@@ -73,6 +74,11 @@ class RiskCheckIntegrationTest {
             exchange.getResponseBody().write(body);
             exchange.close();
         });
+        ENGINE.createContext("/ready", exchange -> { // ADR 0026: billing's startup warm-up
+            READY_CALLS.incrementAndGet();
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        });
         ENGINE.setExecutor(Executors.newCachedThreadPool()); // a slow answer must not hold up the next test's calls
         ENGINE.start();
     }
@@ -88,6 +94,8 @@ class RiskCheckIntegrationTest {
     }
 
     @Autowired private PaymentService paymentService;
+    @Autowired private org.springframework.boot.availability.ApplicationAvailability availability;
+    @Autowired private org.springframework.boot.actuate.health.HealthEndpoint health;
     @Autowired private BillingAccountService billingAccountService;
     @Autowired private FakePaymentProcessor processor;
     @Autowired private JdbcTemplate jdbc;
@@ -116,6 +124,16 @@ class RiskCheckIntegrationTest {
         // payment.events only (Day 19b adds JSON events for the risk engine on their own topics)
         return jdbc.queryForList("SELECT event_type FROM outbox_event WHERE aggregate_id = ? AND topic = 'payment.events' ORDER BY created_at",
                 String.class, payment.getId());
+    }
+
+    /** ADR 0026: the context became ready only after the warm-up ran - 10 GETs of /ready, no payment sent. */
+    @Test
+    void startupWarmedTheRiskClientBeforeReadiness() {
+        assertThat(READY_CALLS.get()).isGreaterThanOrEqualTo(10);
+        assertThat(availability.getReadinessState()).isEqualTo(org.springframework.boot.availability.ReadinessState.ACCEPTING_TRAFFIC);
+        // start-stack.sh polls the ROOT /actuator/health: it must include readiness, or it would not wait for the warm-up
+        assertThat(((org.springframework.boot.actuate.health.CompositeHealth) health.health()).getComponents())
+                .containsKey("readinessState");
     }
 
     @Test

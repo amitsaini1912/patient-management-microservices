@@ -91,6 +91,8 @@ Redis down (`CardRateLimiterFailOpenTest`, gateway `RedisDownTest`, Day 12).
 - **Billing cold start opens the risk breaker.** Right after billing starts, the first risk checks miss the 300 ms
   budget (cold HTTP client / JIT): 7 timeouts → breaker open → ~30 s of fallback decisions. Every live run started
   this way after a restart. A warm-up call before readiness would avoid it.
+  **Fixed 2026-11-01 (ADR 0026):** billing warms its risk client (10 × GET /ready) before readiness turns UP;
+  not re-measured live.
 - **Thundering herd after an outage.** When Postgres came back, the clients' queued retries arrived together:
   99 risk-check timeouts in one second, breaker open, fallback for ~30 s. Safe (fallback rules), but retries should
   have jitter (clients) and billing could limit concurrent risk calls.

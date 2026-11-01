@@ -31,3 +31,4 @@ a new ADR supersedes or amends an old one, and the Status column says so (review
 | [0023](0023-failure-answers-and-timeouts.md) | Temporary failures = 503 + Retry-After (database by cause, acquirer no-answer, gateway can not connect), 504 on gateway timeouts | Accepted |
 | [0024](0024-stale-authorization-resolver.md) | Payments with an unknown authorization outcome: status inquiry after 15 min, then FAILED or authorized + voided | Accepted |
 | [0025](0025-rate-limiter-redis-breaker.md) | Circuit breaker in front of both rate limiters' Redis: skip a dead Redis (fail open at once), 2 trial calls per 10 s | Accepted |
+| [0026](0026-billing-warm-up-before-readiness.md) | Warm up the risk client (GET /ready ×10) before billing reports ready; readiness probes; HTTP/1.1 to the engine | Accepted |

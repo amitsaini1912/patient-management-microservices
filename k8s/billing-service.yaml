@@ -19,6 +19,18 @@ spec:
           ports:
             - containerPort: 4001      # HTTP
             - containerPort: 9001      # gRPC
+          # ADR 0026: no traffic until startup work (risk engine warm-up) is done; restart only if the app is stuck
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 4001
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 4001
+            initialDelaySeconds: 60
+            periodSeconds: 10
           env:
             - name: BILLING_DB_URL
               value: jdbc:postgresql://billing-db:5432/billing   # billing-db Service

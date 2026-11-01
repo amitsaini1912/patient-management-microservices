@@ -35,4 +35,16 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
             LIMIT :limit
             FOR UPDATE SKIP LOCKED""", nativeQuery = true)
     List<Payment> lockAuthorizedBefore(@Param("cutoff") Instant cutoff, @Param("limit") int limit);
+
+    /**
+     * CREATED payments saved before {@code cutoff}, oldest first, for the stale-authorization resolver. No lock: the
+     * resolver calls the acquirer between reading and recording, and each recording locks the row and re-checks the
+     * status. Uses the partial index payment_created_stale_idx (V18).
+     */
+    @Query(value = """
+            SELECT id FROM payment
+            WHERE status = 'CREATED' AND created_at < :cutoff
+            ORDER BY created_at
+            LIMIT :limit""", nativeQuery = true)
+    List<UUID> findCreatedBefore(@Param("cutoff") Instant cutoff, @Param("limit") int limit);
 }

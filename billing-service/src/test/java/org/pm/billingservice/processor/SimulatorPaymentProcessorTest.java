@@ -37,7 +37,9 @@ class SimulatorPaymentProcessorTest {
     void start() throws IOException {
         acquirer = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
         acquirer.createContext("/", exchange -> {
-            calls.add(new Call(exchange.getRequestMethod(), exchange.getRequestURI().getPath(),
+            String query = exchange.getRequestURI().getRawQuery();
+            calls.add(new Call(exchange.getRequestMethod(),
+                    exchange.getRequestURI().getPath() + (query == null ? "" : "?" + query),
                     exchange.getRequestHeaders().getFirst("Authorization"),
                     exchange.getRequestHeaders().getFirst("Idempotency-Key"),
                     new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8)));
@@ -111,6 +113,29 @@ class SimulatorPaymentProcessorTest {
         assertThat(calls).extracting(Call::idempotencyKey).containsExactly("capture-key", "void-key", "refund-key");
         assertThat(calls.get(0).body()).contains("\"amount_minor\":60000");
         assertThat(refundId).isEqualTo("re_1");
+    }
+
+    @Test
+    void inquiryAsksByOurPaymentIdAndMapsWhatTheAcquirerHas() {
+        UUID paymentId = UUID.randomUUID();
+        response = "{\"data\":[{\"id\":\"auth_7\",\"status\":\"AUTHORIZED\",\"network_response_code\":\"00\"}]}";
+        assertThat(adapter.findAuthorization(paymentId)).contains(AuthorizationResult.approved("auth_7", "00"));
+        assertThat(calls.get(0).method()).isEqualTo("GET");
+        assertThat(calls.get(0).path()).isEqualTo("/v1/authorizations?merchant_reference=" + paymentId);
+        assertThat(calls.get(0).idempotencyKey()).isNull(); // read-only
+
+        response = "{\"data\":[{\"id\":\"auth_8\",\"status\":\"DECLINED\",\"decline_reason\":\"card_declined\","
+                + "\"network_response_code\":\"05\"}]}";
+        assertThat(adapter.findAuthorization(paymentId)).contains(AuthorizationResult.declined("card_declined", "05", false));
+
+        response = "{\"data\":[]}";
+        assertThat(adapter.findAuthorization(paymentId)).isEmpty(); // never received
+
+        // already voided/captured there while we are still CREATED: the books disagree -> not guessed
+        response = "{\"data\":[{\"id\":\"auth_9\",\"status\":\"VOIDED\"}]}";
+        assertThatThrownBy(() -> adapter.findAuthorization(paymentId)).isInstanceOf(PaymentProcessorException.class);
+        response = "{\"data\":[{\"id\":\"a\",\"status\":\"AUTHORIZED\"},{\"id\":\"b\",\"status\":\"AUTHORIZED\"}]}";
+        assertThatThrownBy(() -> adapter.findAuthorization(paymentId)).hasMessageContaining("expected one");
     }
 
     @Test

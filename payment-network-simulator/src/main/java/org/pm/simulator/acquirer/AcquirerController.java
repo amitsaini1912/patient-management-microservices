@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
+import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -47,6 +49,12 @@ public class AcquirerController {
                                         @Valid @RequestBody AuthorizeRequest request) {
         return acquirer.authorize(key, request.merchantReference(), request.amountMinor(), request.currency(),
                 request.paymentMethodToken());
+    }
+
+    /** {"data": [...]}: the authorizations for this merchant reference, oldest first; empty if none was received. */
+    @GetMapping
+    public Map<String, List<AuthorizationState>> find(@RequestParam("merchant_reference") String merchantReference) {
+        return Map.of("data", acquirer.findByMerchantReference(merchantReference));
     }
 
     @GetMapping("/{id}")

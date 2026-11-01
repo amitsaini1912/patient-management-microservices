@@ -1,5 +1,6 @@
 package org.pm.billingservice.processor;
 
+import java.util.Optional;
 import java.util.UUID;
 import org.pm.billingservice.money.Money;
 
@@ -30,4 +31,12 @@ public interface PaymentProcessor {
      * Throws {@link PaymentProcessorException} if the processor refuses (e.g. more than is left to refund).
      */
     String refund(String idempotencyKey, String processorReference, Money amount);
+
+    /**
+     * Status inquiry: what the acquirer has for this payment's authorization, WITHOUT sending it again. Empty = the
+     * acquirer never received it. For payments whose outcome we never learned (timeout, crash between steps): see
+     * {@code StaleAuthorizationResolver}. Throws {@link PaymentProcessorException} if the acquirer can't say, or if
+     * its authorization is already past AUTHORIZED/DECLINED (our records and its books disagree: reconciliation).
+     */
+    Optional<AuthorizationResult> findAuthorization(UUID paymentId);
 }

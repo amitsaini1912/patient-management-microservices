@@ -139,7 +139,7 @@ class AuthorizationExpiryJobIntegrationTest {
 
     private AuthorizationExpiryJob jobAt(Instant now) {
         return new AuthorizationExpiryJob(paymentRepository, processor, paymentEvents, transactionTemplate,
-                Clock.fixed(now, ZoneOffset.UTC), new PaymentProperties(TTL, 100));
+                Clock.fixed(now, ZoneOffset.UTC), new PaymentProperties(TTL, 100, Duration.ofMinutes(15), 100));
     }
 
     private Payment authorized() {

@@ -77,9 +77,10 @@ Redis down (`CardRateLimiterFailOpenTest`, gateway `RedisDownTest`, Day 12).
   **503 + Retry-After, "the outcome is unknown, retry with the same Idempotency-Key"**. The retry reaches the acquirer
   with the same key and gets the original result, never a second charge (Day 5).
 - After, with a client that retries for ~15 s: **59** orphans, 121 CREATED, 534 captured (was 458).
-- **Still open:** a 60 s outage outlasts any reasonable client retry. Billing must resolve unknown outcomes itself:
-  a job that asks the acquirer about stale CREATED payments by idempotency key and voids authorizations nobody came
-  back for. Logged in PROGRESS open items.
+- **Fixed 2026-11-01 (ADR 0024):** a 60 s outage outlasts any reasonable client retry, so billing now resolves
+  unknown outcomes itself: payments still CREATED after 15 minutes get a status inquiry at the acquirer and end FAILED
+  (never received / declined) or authorized + voided (hold released). Tested in `StaleAuthorizationResolverIntegrationTest`;
+  the chaos run was not repeated. Still open: the AUTHORIZED orphans (recorded, never captured) wait for the 7-day expiry.
 
 **4. Smaller findings (not fixed today)**
 - **Redis down → checkout p95 ~1 s.** Every rate-limit check waits its 200 ms timeout before failing open (gateway

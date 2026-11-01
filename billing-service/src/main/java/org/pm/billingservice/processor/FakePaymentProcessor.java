@@ -2,6 +2,7 @@ package org.pm.billingservice.processor;
 
 import java.time.Duration;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
@@ -41,12 +42,31 @@ public class FakePaymentProcessor implements PaymentProcessor {
     // idempotency key -> result of the first successful call with that key
     private final Map<String, Object> completedCalls = new ConcurrentHashMap<>();
     private final Map<String, Integer> executions = new ConcurrentHashMap<>();
+    // calls that got past the idempotency check and are running now (or ran): set BEFORE the latency sleep
+    private final Map<String, Integer> started = new ConcurrentHashMap<>();
+    // payment id (our merchant reference) -> its authorization, for status inquiries
+    private final Map<UUID, AuthorizationResult> byPayment = new ConcurrentHashMap<>();
     // a real acquirer takes 100s of ms; tests set this so concurrent requests really overlap
     private volatile Duration latency = Duration.ZERO;
 
     @Override
     public AuthorizationResult authorize(String idempotencyKey, UUID paymentId, Money amount, String paymentMethodToken) {
-        return once(idempotencyKey, () -> doAuthorize(amount, paymentMethodToken));
+        return once(idempotencyKey, () -> {
+            AuthorizationResult result = doAuthorize(amount, paymentMethodToken);
+            byPayment.put(paymentId, result);
+            return result;
+        });
+    }
+
+    @Override
+    public Optional<AuthorizationResult> findAuthorization(UUID paymentId) {
+        sleep(latency);
+        AuthorizationResult result = byPayment.get(paymentId);
+        if (result != null && result.approved() && hold(result.processorReference()).state() != HoldState.AUTHORIZED) {
+            throw new PaymentProcessorException("inquiry: authorization " + result.processorReference() + " is "
+                    + hold(result.processorReference()).state());
+        }
+        return Optional.ofNullable(result);
     }
 
     private AuthorizationResult doAuthorize(Money amount, String paymentMethodToken) {
@@ -128,6 +148,7 @@ public class FakePaymentProcessor implements PaymentProcessor {
             throw new PaymentProcessorException("idempotency key is required");
         }
         return (T) completedCalls.computeIfAbsent(idempotencyKey, k -> {
+            started.merge(k, 1, Integer::sum);
             sleep(latency);
             T result = call.get();
             executions.merge(k, 1, Integer::sum);
@@ -155,6 +176,11 @@ public class FakePaymentProcessor implements PaymentProcessor {
     /** For tests: how many times the work behind this key really ran (must never exceed 1). */
     public int executions(String idempotencyKey) {
         return executions.getOrDefault(idempotencyKey, 0);
+    }
+
+    /** For tests: the work behind this key has begun (it may still be in its latency) - "the call is in flight". */
+    public boolean started(String idempotencyKey) {
+        return started.containsKey(idempotencyKey);
     }
 
     /** For tests: what the "acquirer" thinks happened. */

@@ -177,7 +177,9 @@ class DatabaseChaosIntegrationTest {
         String key = newKey();
         processor.setLatency(Duration.ofMillis(1500));              // the acquirer call is in flight...
         CompletableFuture<HttpResponse<String>> first = CompletableFuture.supplyAsync(() -> authorize(key, "999.00"));
-        await(() -> processor.executions("authorize:" + paymentId(key)) == 1 || first.isDone());
+        // wait until the call is IN FLIGHT (inside its 1.5 s), not done: waiting for executions == 1 fired only after the
+        // call had returned, and the recording step sometimes committed before the cut (201 instead of 503, seen once in reverse order)
+        await(() -> processor.started("authorize:" + paymentId(key)) || first.isDone());
         DB.disable();                                                // ...and the database goes away meanwhile
         HttpResponse<String> failed = first.get();
         processor.setLatency(Duration.ZERO);

@@ -1,7 +1,9 @@
 package org.pm.simulator.acquirer;
 
 import java.time.Clock;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -154,6 +156,18 @@ public class AcquirerService {
             throw new AcquirerException(HttpStatus.NOT_FOUND, "not_found", "no authorization " + authorizationId);
         }
         return auth;
+    }
+
+    /**
+     * Status inquiry by the merchant's own reference (billing: its payment id), like a real acquirer's "find
+     * transaction by order id". For a merchant that never heard back - timeout, crash - this is how it learns whether
+     * the authorization happened, without sending it again. Empty = the acquirer never received it. Read-only.
+     */
+    public List<AuthorizationState> findByMerchantReference(String merchantReference) {
+        return authorizations.values().stream()
+                .filter(auth -> auth.merchantReference().equals(merchantReference))
+                .sorted(Comparator.comparing(AuthorizationState::createdAt))
+                .toList();
     }
 
     public record RefundResult(String id, AuthorizationState authorization) {}

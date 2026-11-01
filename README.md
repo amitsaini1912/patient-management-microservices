@@ -137,7 +137,9 @@ sequenceDiagram
 ```
 
 If the acquirer doesn't answer, the outcome is unknown: the client gets **503 + Retry-After** and retries with the
-same key, which reaches the acquirer with the same key and gets the original result (ADR 0023).
+same key, which reaches the acquirer with the same key and gets the original result (ADR 0023). If nobody retries,
+a job asks the acquirer about payments still CREATED after 15 minutes and settles them: FAILED if it never received or
+declined the authorization, voided if it authorized one nobody was told about (ADR 0024).
 
 ### Capture (and what the ledger records)
 
@@ -237,7 +239,7 @@ service with `sh ./mvnw spring-boot:run`. Tracing: `docker compose up -d jaeger`
 ### Tests
 
 ```bash
-cd billing-service && sh ./mvnw verify          # 407 tests, Testcontainers (Postgres, Kafka, Redis, Toxiproxy)
+cd billing-service && sh ./mvnw verify          # 416 tests, Testcontainers (Postgres, Kafka, Redis, Toxiproxy)
 # with a coverage report (target/site/jacoco/index.html), the command CI runs:
 sh ./mvnw org.jacoco:jacoco-maven-plugin:0.8.12:prepare-agent verify org.jacoco:jacoco-maven-plugin:0.8.12:report
 ```
@@ -266,16 +268,16 @@ CI runs every service's tests on each push, in parallel, with coverage in the jo
 
 ## Documents
 
-- [docs/adr/](docs/adr/) — 23 architecture decisions: what was chosen, the alternatives, and the cost
+- [docs/adr/](docs/adr/) — 24 architecture decisions: what was chosen, the alternatives, and the cost
 - [docs/PERFORMANCE.md](docs/PERFORMANCE.md) — k6 load test, the bottleneck, before/after
 - [docs/CHAOS.md](docs/CHAOS.md) — six failures under load, what happened, what was fixed
 - [docs/ROUNDING.md](docs/ROUNDING.md) — money in minor units, rounding and allocation rules
 
 ## Known limitations (honest list)
 
-- **Unknown acquirer outcomes are resolved by client retries only.** An acquirer outage longer than the client's
-  patience leaves authorizations nobody captures (59 in a 60 s freeze); they are released by the 7-day expiry.
-  Next: a job that asks the acquirer about stale payments and voids the abandoned ones.
+- **Abandoned authorizations wait for the 7-day expiry.** Payments left CREATED by an acquirer outage are settled
+  after 15 minutes (ADR 0024), but a payment billing recorded as AUTHORIZED whose client then gave up (59 in a 60 s
+  freeze) looks like any uncaptured authorization and is released only by the expiry job.
 - The risk engine runs **one worker**: ~30 risk-checked payments/s on this laptop; above that billing degrades to
   its fallback rules (safely, but without the model).
 - Payouts are not modelled (the acquirer's receivable never moves to a bank account); FX rates are entered by hand.

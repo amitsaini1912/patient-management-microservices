@@ -178,6 +178,33 @@ class SimulatorIntegrationTest {
     }
 
     @Test
+    void inquiryByMerchantReferenceFindsWhatWasReceivedAndNothingElse() throws Exception {
+        String approved = UUID.randomUUID().toString();
+        String declined = UUID.randomUUID().toString();
+        String auth = authorizationId(authorize(newKey(), approved, 1_000_00, "pm_card_visa"));
+        authorize(newKey(), declined, 1_000_00, "pm_card_declined");
+
+        mvc.perform(get("/v1/authorizations").param("merchant_reference", approved).header("Authorization", API_KEY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].id").value(auth))
+                .andExpect(jsonPath("$.data[0].status").value("AUTHORIZED"));
+        mvc.perform(get("/v1/authorizations").param("merchant_reference", declined).header("Authorization", API_KEY))
+                .andExpect(jsonPath("$.data[0].status").value("DECLINED"))
+                .andExpect(jsonPath("$.data[0].decline_reason").value("card_declined"));
+        mvc.perform(get("/v1/authorizations").param("merchant_reference", UUID.randomUUID().toString())
+                        .header("Authorization", API_KEY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(0)); // never received
+        mvc.perform(get("/v1/authorizations").param("merchant_reference", approved))
+                .andExpect(status().isUnauthorized());
+
+        awaitWebhook(approved, "payment.authorized");
+        Thread.sleep(200);
+        assertThat(webhooksFor(approved)).hasSize(1); // read-only: the inquiries sent no webhook
+    }
+
+    @Test
     void captureVoidRefundFollowTheRules() throws Exception {
         String reference = UUID.randomUUID().toString();
         String auth = authorizationId(authorize(newKey(), reference, 1_000_00, "pm_card_visa"));

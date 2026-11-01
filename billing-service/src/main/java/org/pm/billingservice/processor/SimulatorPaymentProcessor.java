@@ -2,6 +2,8 @@ package org.pm.billingservice.processor;
 
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
+import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.pm.billingservice.money.Money;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -57,6 +59,8 @@ public class SimulatorPaymentProcessor implements PaymentProcessor {
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
     record RefundResponse(String id) {}
 
+    record InquiryResponse(List<AuthorizationResponse> data) {}
+
     @Override
     public AuthorizationResult authorize(String idempotencyKey, UUID paymentId, Money amount, String paymentMethodToken) {
         AuthorizationResponse response = call("authorize", () -> http.post().uri("/v1/authorizations")
@@ -66,6 +70,10 @@ public class SimulatorPaymentProcessor implements PaymentProcessor {
                 .body(new AuthorizeRequest(paymentId.toString(), amount.amountMinor(),
                         amount.currency().getCurrencyCode(), paymentMethodToken))
                 .retrieve().body(AuthorizationResponse.class));
+        return toResult(response);
+    }
+
+    private static AuthorizationResult toResult(AuthorizationResponse response) {
         return switch (response.status()) {
             case "AUTHORIZED" -> AuthorizationResult.approved(response.id(), response.networkResponseCode());
             // a 91 (issuer unavailable) is a decline too, with retryable=true: the payment ends FAILED, the client may
@@ -74,6 +82,22 @@ public class SimulatorPaymentProcessor implements PaymentProcessor {
                     response.retryable());
             default -> throw new PaymentProcessorException("unexpected authorization status " + response.status());
         };
+    }
+
+    /** GET /v1/authorizations?merchant_reference={paymentId}: one authorization per payment (one key per payment). */
+    @Override
+    public Optional<AuthorizationResult> findAuthorization(UUID paymentId) {
+        InquiryResponse response = call("inquiry", () -> http.get()
+                .uri(uri -> uri.path("/v1/authorizations").queryParam("merchant_reference", paymentId).build())
+                .retrieve().body(InquiryResponse.class));
+        if (response.data() == null || response.data().isEmpty()) {
+            return Optional.empty();
+        }
+        if (response.data().size() > 1) {
+            throw new PaymentProcessorException("inquiry: " + response.data().size() + " authorizations for payment "
+                    + paymentId + " (expected one)");
+        }
+        return Optional.of(toResult(response.data().get(0)));
     }
 
     @Override

@@ -86,6 +86,8 @@ Redis down (`CardRateLimiterFailOpenTest`, gateway `RedisDownTest`, Day 12).
 - **Redis down → checkout p95 ~1 s.** Every rate-limit check waits its 200 ms timeout before failing open (gateway
   once, billing's card limit once more on authorize). A breaker around Redis would skip it after the first failures.
   The gateway also logged a full stack trace for each of the 949 timeouts.
+  **Fixed 2026-11-01 (ADR 0025):** a breaker in front of both limiters skips Redis after 5 failures (2 trial calls
+  per 10 s), so requests fail open at once and the stack traces stop; unit + Redis-down tests, k6 run not repeated.
 - **Billing cold start opens the risk breaker.** Right after billing starts, the first risk checks miss the 300 ms
   budget (cold HTTP client / JIT): 7 timeouts → breaker open → ~30 s of fallback decisions. Every live run started
   this way after a restart. A warm-up call before readiness would avoid it.

@@ -239,7 +239,7 @@ service with `sh ./mvnw spring-boot:run`. Tracing: `docker compose up -d jaeger`
 ### Tests
 
 ```bash
-cd billing-service && sh ./mvnw verify          # 416 tests, Testcontainers (Postgres, Kafka, Redis, Toxiproxy)
+cd billing-service && sh ./mvnw verify          # 417 tests, Testcontainers (Postgres, Kafka, Redis, Toxiproxy)
 # with a coverage report (target/site/jacoco/index.html), the command CI runs:
 sh ./mvnw org.jacoco:jacoco-maven-plugin:0.8.12:prepare-agent verify org.jacoco:jacoco-maven-plugin:0.8.12:report
 ```
@@ -268,7 +268,7 @@ CI runs every service's tests on each push, in parallel, with coverage in the jo
 
 ## Documents
 
-- [docs/adr/](docs/adr/) — 24 architecture decisions: what was chosen, the alternatives, and the cost
+- [docs/adr/](docs/adr/) — 25 architecture decisions: what was chosen, the alternatives, and the cost
 - [docs/PERFORMANCE.md](docs/PERFORMANCE.md) — k6 load test, the bottleneck, before/after
 - [docs/CHAOS.md](docs/CHAOS.md) — six failures under load, what happened, what was fixed
 - [docs/ROUNDING.md](docs/ROUNDING.md) — money in minor units, rounding and allocation rules

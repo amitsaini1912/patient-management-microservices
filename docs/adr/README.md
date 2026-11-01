@@ -30,3 +30,4 @@ a new ADR supersedes or amends an old one, and the Status column says so (review
 | [0022](0022-load-testing-with-k6.md) | k6 checkout load test: open model, fresh isolated stack, server-side fallback counter next to latencies | Accepted |
 | [0023](0023-failure-answers-and-timeouts.md) | Temporary failures = 503 + Retry-After (database by cause, acquirer no-answer, gateway can not connect), 504 on gateway timeouts | Accepted |
 | [0024](0024-stale-authorization-resolver.md) | Payments with an unknown authorization outcome: status inquiry after 15 min, then FAILED or authorized + voided | Accepted |
+| [0025](0025-rate-limiter-redis-breaker.md) | Circuit breaker in front of both rate limiters' Redis: skip a dead Redis (fail open at once), 2 trial calls per 10 s | Accepted |

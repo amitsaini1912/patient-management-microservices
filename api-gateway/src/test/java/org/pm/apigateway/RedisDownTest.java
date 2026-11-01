@@ -2,7 +2,10 @@ package org.pm.apigateway;
 
 import java.time.Duration;
 import java.time.Instant;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import org.junit.jupiter.api.Test;
+import org.pm.apigateway.ratelimit.BreakerRedisRateLimiter;
+import org.springframework.cloud.gateway.filter.ratelimit.RedisRateLimiter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -36,6 +39,7 @@ class RedisDownTest extends GatewayTestSupport {
     }
 
     @Autowired private WebTestClient web;
+    @Autowired private RedisRateLimiter limiter;
 
     @Test
     void whenRedisDiesRequestsStillGoThroughQuicklyEvenAboveTheLimit() {
@@ -49,5 +53,18 @@ class RedisDownTest extends GatewayTestSupport {
             web.get().uri("/api/payments/1").header("Authorization", token).exchange().expectStatus().isOk();
             assertThat(Duration.between(start, Instant.now())).isLessThan(Duration.ofSeconds(2));
         }
+
+        // Day 23 finding: each of those waited Redis's 200 ms timeout. After a few failures the breaker opens and
+        // requests stop asking Redis at all (still allowed).
+        for (int i = 0; i < 10; i++) {
+            web.get().uri("/api/payments/1").header("Authorization", token).exchange().expectStatus().isOk();
+        }
+        CircuitBreaker breaker = ((BreakerRedisRateLimiter) limiter).breaker();
+        assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
+        assertThat(breaker.getMetrics().getNumberOfNotPermittedCalls()).isGreaterThan(0);
+        Instant start = Instant.now();
+        web.get().uri("/api/payments/1").header("Authorization", token).exchange().expectStatus().isOk()
+                .expectHeader().valueEquals("X-RateLimit-Remaining", "-1");
+        assertThat(Duration.between(start, Instant.now())).isLessThan(Duration.ofMillis(150)); // no Redis timeout
     }
 }

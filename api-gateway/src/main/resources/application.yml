@@ -25,6 +25,22 @@ spring:
         response-timeout: 10s
       routes:
 
+        # ADR 0027: login guessing. Per CLIENT IP (no user yet), before the general auth route: a burst of 10 attempts,
+        # then 1 every 6 s (each login takes 6 tokens of a 1/s bucket of 60). 429 + Retry-After: 6. auth-service also
+        # locks an account after 5 wrong passwords (many IPs, one account).
+        - id: auth-login-route
+          uri: ${auth.service.url:http://auth-service:4005}
+          predicates:
+            - Path=/auth/login
+          filters:
+            - StripPrefix=1
+            - name: RequestRateLimiter
+              args:
+                key-resolver: "#{@clientIpKeyResolver}"
+                redis-rate-limiter.replenishRate: 1
+                redis-rate-limiter.burstCapacity: ${GATEWAY_LOGIN_BURST_TOKENS:60}
+                redis-rate-limiter.requestedTokens: ${GATEWAY_LOGIN_TOKENS_PER_ATTEMPT:6}
+
         # Route for /api/auth/** to auth-service
         - id: auth-service-route
           uri: ${auth.service.url:http://auth-service:4005} #Internal address of service where it is running

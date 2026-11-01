@@ -1,5 +1,6 @@
 package org.pm.authservice.config;
 
+import java.time.Clock;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -19,8 +20,16 @@ public class SecurityConfig {
         return http.build();
     }
 
+    /** For the login lockout's timestamps (tests replace it). */
+    @Bean
+    public Clock clock() {
+        return Clock.systemUTC();
+    }
+
     @Bean
     public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
+        // cost 12 = the stored hashes' cost (data.sql: $2b$12$...). The login's dummy hash for unknown emails is made
+        // with this encoder, so an unknown email takes as long as a wrong password (ADR 0027)
+        return new BCryptPasswordEncoder(12);
     }
 }

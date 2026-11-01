@@ -8,12 +8,14 @@ import org.pm.apigateway.filter.IdentityHeaders;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.gateway.filter.ratelimit.RedisRateLimiter;
+import org.springframework.cloud.gateway.support.ipresolver.XForwardedRemoteAddressResolver;
 import org.springframework.cloud.gateway.support.ConfigurationService;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.cloud.gateway.filter.ratelimit.KeyResolver;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import reactor.core.publisher.Mono;
 
 /**
@@ -30,8 +32,25 @@ public class RateLimitConfig {
      * refuses (deny-empty-key, 403) instead of putting every anonymous caller into one shared bucket.
      */
     @Bean
+    @Primary // the default for RequestRateLimiter; clientIpKeyResolver is named per route
     KeyResolver userKeyResolver() {
         return exchange -> Mono.justOrEmpty(exchange.getRequest().getHeaders().getFirst(IdentityHeaders.USER_ID));
+    }
+
+    /**
+     * The client's IP, for routes without a user yet (/auth/login, ADR 0027). By default the TCP peer address:
+     * X-Forwarded-For is set by whoever sends the request, so trusting it would give an attacker a fresh bucket per
+     * request. Behind N proxies we control (ingress, load balancer), set gateway.trusted-proxies=N: the address N hops
+     * from the right of X-Forwarded-For is used - the one our first proxy saw.
+     */
+    @Bean
+    public KeyResolver clientIpKeyResolver(@Value("${gateway.trusted-proxies:0}") int trustedProxies) {
+        if (trustedProxies <= 0) {
+            return exchange -> Mono.justOrEmpty(exchange.getRequest().getRemoteAddress())
+                    .map(address -> address.getAddress().getHostAddress());
+        }
+        XForwardedRemoteAddressResolver resolver = XForwardedRemoteAddressResolver.maxTrustedIndex(trustedProxies);
+        return exchange -> Mono.justOrEmpty(resolver.resolve(exchange)).map(address -> address.getAddress().getHostAddress());
     }
 
     /**

@@ -14,7 +14,8 @@ import org.springframework.test.context.DynamicPropertySource;
 
 /**
  * Two tiny JDK HTTP servers stand in for the services behind the gateway:
- *   auth    GET /validate: "Bearer valid-<user>" -> 200 {"subject":"<user>","role":"USER"}, anything else -> 401
+ *   auth    GET /validate: "Bearer valid-<user>" -> 200 {"subject":"<user>","role":"USER"}, anything else -> 401;
+ *           POST /login: always 401 (ADR 0027 tests count the gateway's per-IP limit)
  *   backend every other path: 200 and remembers what it received (path + headers), playing billing / card-vault
  * The servers and their state are STATIC, shared by every test class in the JVM: {@link #resetStubs()} puts them back
  * before each test of every subclass. (CI once ran GatewayIntegrationTest before RedisDownTest, and a "broken
@@ -47,6 +48,10 @@ abstract class GatewayTestSupport {
             } else {
                 respond(exchange, 401, "");
             }
+        });
+        auth.createContext("/login", exchange -> { // every login "fails": what's measured is the gateway's limit
+            exchange.getRequestBody().readAllBytes();
+            respond(exchange, 401, "");
         });
         auth.start();
         backend.createContext("/", exchange -> {

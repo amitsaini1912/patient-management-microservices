@@ -32,3 +32,4 @@ a new ADR supersedes or amends an old one, and the Status column says so (review
 | [0024](0024-stale-authorization-resolver.md) | Payments with an unknown authorization outcome: status inquiry after 15 min, then FAILED or authorized + voided | Accepted |
 | [0025](0025-rate-limiter-redis-breaker.md) | Circuit breaker in front of both rate limiters' Redis: skip a dead Redis (fail open at once), 2 trial calls per 10 s | Accepted |
 | [0026](0026-billing-warm-up-before-readiness.md) | Warm up the risk client (GET /ready ×10) before billing reports ready; readiness probes; HTTP/1.1 to the engine | Accepted |
+| [0027](0027-login-brute-force-protection.md) | Login brute force: per-IP limit on /auth/login at the gateway, 15-min account lockout (same 401), bcrypt for unknown emails too | Accepted |

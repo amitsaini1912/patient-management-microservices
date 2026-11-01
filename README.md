@@ -268,7 +268,7 @@ CI runs every service's tests on each push, in parallel, with coverage in the jo
 
 ## Documents
 
-- [docs/adr/](docs/adr/) — 26 architecture decisions: what was chosen, the alternatives, and the cost
+- [docs/adr/](docs/adr/) — 27 architecture decisions: what was chosen, the alternatives, and the cost
 - [docs/PERFORMANCE.md](docs/PERFORMANCE.md) — k6 load test, the bottleneck, before/after
 - [docs/CHAOS.md](docs/CHAOS.md) — six failures under load, what happened, what was fixed
 - [docs/ROUNDING.md](docs/ROUNDING.md) — money in minor units, rounding and allocation rules
@@ -281,6 +281,8 @@ CI runs every service's tests on each push, in parallel, with coverage in the jo
 - The risk engine ran **one worker** in the checkout load test: ~30 risk-checked payments/s on this laptop; above that
   billing degrades to its fallback rules (safely, but without the model). It now runs 4 workers (engine alone: 80
   checks/s at p99 140 ms, its ADR 0011); the checkout test has not been repeated with them.
+- Login: per-IP limit + account lockout (ADR 0027). A lockout can be triggered by someone else (5 wrong passwords),
+  and behind NAT / a load balancer the per-IP limit needs `gateway.trusted-proxies` or all clients share one bucket.
 - Payouts are not modelled (the acquirer's receivable never moves to a bank account); FX rates are entered by hand.
 - The simulator keeps state in memory; card-vault keys come from env (production: KMS/HSM envelope encryption).
 - `patient-service` still writes to Kafka directly (no outbox); `/reconciliation` and `/fx` have no gateway route

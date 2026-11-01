@@ -1,0 +1,33 @@
+
+     ✓ account created
+     ✓ card tokenized (201)
+     ✓ payment created (201)
+     ✓ captured (200)
+     ✓ payment CAPTURED
+
+   ✓ checkout_duration..............: avg=53.37ms med=46ms    p(90)=56ms    p(95)=66ms    p(99)=499.5ms  max=873ms   
+     checks.........................: 100.00% 3755 out of 3755
+     data_received..................: 1.8 MB  12 kB/s
+     data_sent......................: 1.2 MB  8.0 kB/s
+   ✓ dropped_iterations.............: 0       0/s
+     grpc_account_duration..........: avg=4.25ms  med=4ms     p(90)=5ms     p(95)=6ms     p(99)=9ms      max=20ms    
+     grpc_req_duration..............: avg=4.12ms  med=4.04ms  p(90)=5.02ms  p(95)=5.34ms  p(99)=8.1ms    max=19.18ms 
+     http_req_blocked...............: avg=8.7µs   med=3.64µs  p(90)=5.4µs   p(95)=7.31µs  p(99)=168.08µs max=2.64ms  
+     http_req_connecting............: avg=3.51µs  med=0s      p(90)=0s      p(95)=0s      p(99)=121.23µs max=2.25ms  
+     http_req_duration..............: avg=17.67ms med=11.39ms p(90)=31.52ms p(95)=34.51ms p(99)=218.43ms max=582.61ms
+       { expected_response:true }...: avg=17.67ms med=11.39ms p(90)=31.52ms p(95)=34.51ms p(99)=218.43ms max=582.61ms
+     ✓ { name:authorize }...........: avg=31.71ms med=30.04ms p(90)=36.39ms p(95)=43.33ms p(99)=219.85ms max=582.61ms
+     ✓ { name:capture }.............: avg=11.49ms med=11.32ms p(90)=12.85ms p(95)=13.6ms  p(99)=15.4ms   max=59.51ms 
+     ✓ { name:tokenize }............: avg=9.53ms  med=4.39ms  p(90)=5.2ms   p(95)=5.65ms  p(99)=270.91ms max=279.78ms
+   ✓ http_req_failed................: 0.00%   0 out of 2254
+     http_req_receiving.............: avg=66.94µs med=63.88µs p(90)=86.11µs p(95)=98.29µs p(99)=169.07µs max=1.29ms  
+     http_req_sending...............: avg=16.89µs med=14.82µs p(90)=22.22µs p(95)=26.14µs p(99)=44.16µs  max=419.62µs
+     http_req_tls_handshaking.......: avg=0s      med=0s      p(90)=0s      p(95)=0s      p(99)=0s       max=0s      
+     http_req_waiting...............: avg=17.58ms med=11.31ms p(90)=31.42ms p(95)=34.42ms p(99)=218.35ms max=582.49ms
+     http_reqs......................: 2254    15.000289/s
+     iteration_duration.............: avg=57.9ms  med=50.42ms p(90)=60.7ms  p(95)=71.64ms p(99)=503.82ms max=876.79ms
+     iterations.....................: 751     4.997878/s
+     payment_outcomes...............: 751     4.997878/s
+     vus............................: 0       min=0            max=2 
+     vus_max........................: 50      min=50           max=50
+

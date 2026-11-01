@@ -25,6 +25,8 @@ for one instance while keeping the engine's queue short. Several billing instanc
 - A shorter breaker open time: still 100% fallback during it; the cap keeps the engine in use.
 
 ## Consequences
+- **Measured 2026-11-01** (Postgres stopped 35 s): breaker never opened (Day 23: ~30 s open), 73 `busy` + 8 timeouts
+  instead of 174 circuit_open + 102 timeouts.
 - During a herd, payments over the cap get the fallback (a `busy` decision each), but the engine stays fast for the
   rest and the breaker stays closed, so the fallback ends with the herd instead of 30 s later.
 - The cap is per instance, not global; the engine's capacity must be >= instances x 16 for it to protect the engine.

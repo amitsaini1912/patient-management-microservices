@@ -36,6 +36,8 @@ authorization again:
   already_settled, unresolved).
 
 ## Consequences
+- **Measured 2026-11-01** (acquirer frozen 60 s, window 1 min): 121 -> 0 payments left CREATED; 124 settled as not
+  received within 55 s of the heal, 0 late webhooks for them; 58 orphan AUTHORIZED remain (as expected).
 - No payment stays CREATED longer than ~16 minutes while the acquirer answers inquiries.
 - Accepted gap: a request delayed in the network for more than 15 minutes that reaches the acquirer AFTER we recorded
   "not received" is authorized there; its webhook is ignored as stale and the hold lapses after ~7 days.

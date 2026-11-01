@@ -100,3 +100,25 @@ Redis down (`CardRateLimiterFailOpenTest`, gateway `RedisDownTest`, Day 12).
   at once, the breaker stays closed. Tested with a load-dependent fake engine; not re-measured live.
 - **k6 `dropped_iterations`** in the database / vault runs: k6 couldn't start new virtual users fast enough while
   many were sleeping in retry waits. A limitation of the client, not of the system.
+
+## Re-run after the follow-ups (2026-11-01)
+
+Same `chaos.sh` scenarios (5 checkouts/s for 150 s, fault at 30 s), `TAG=followups` -> `load-test/results/chaos-*-followups*`.
+billing ran with `stale-created-after=1m` (resolver window shortened so its effect shows within the run).
+
+| Scenario | Day 23 | 2026-11-01 | Fix |
+|---|---|---|---|
+| Redis stopped 60 s | checkout p95 1,054 ms / p99 1,077 ms; 949 stack traces in the gateway log | **p95 66 ms** / p99 500 ms; 17 stack traces; gateway breaker open 1 s after the fault, closed 4 s after the heal | ADR 0025 |
+| Postgres stopped 35 s | risk breaker opened (~30 s): 174 circuit_open + 102 timeouts, 397 engine checks; p95 1,877 ms | **breaker never opened**: 73 `busy` + 8 timeouts, 593 engine checks; p95 1,071 ms | ADR 0028 |
+| Acquirer frozen 60 s | 121 payments left CREATED for good, 59 orphan AUTHORIZED | **0 CREATED**: 124 settled as `not_received_by_acquirer` within 55 s of the heal (0 late webhooks for them); 58 orphan AUTHORIZED (unchanged, as ADR 0024 says) | ADR 0024 |
+
+Client side of the acquirer run is unchanged (182 checkouts gave up on 503 after their retries, Day 23: 180): the
+resolver cleans up the server side, it can't answer clients during the freeze.
+
+**New finding in the Postgres run: 1 checkout got 504** (Day 23: none). billing's Hikari pool waited its default 30 s
+for a connection - longer than the gateway's 10 s - so the gateway gave up and the client never heard; billing
+finished the authorization after Postgres was back (that payment is AUTHORIZED, nobody captures it). ADR 0023's
+"503 in < 5 s" had only been true with the TEST config (2 s). Fixed: `spring.datasource.hikari.connection-timeout`
+3000 ms in billing, 1500 ms in card-vault (below billing's 2 s vault call and the gateway's 3 s tokenize timeout).
+Not re-run after this fix.
+

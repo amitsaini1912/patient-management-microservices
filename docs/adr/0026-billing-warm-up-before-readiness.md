@@ -22,6 +22,8 @@ for ~30 s. Nothing told the orchestrator billing wasn't really ready: health was
   plain-http connection, which uvicorn doesn't use.
 
 ## Consequences
+- **Measured 2026-11-01**: step test started right after a fresh billing start: 0 fallback decisions, 0 risk timeouts
+  (Day 22: 108 timeouts / 5,473 breaker-open; with 4 engine workers too, so not the warm-up alone).
 - Startup is longer by the warm-up (measured in the test against a local stub: first call 56 ms, last 1 ms; at most
   10 s if the engine hangs).
 - Only billing's side is warmed: `/ready` doesn't run the engine's model, so a freshly started ENGINE can still be slow

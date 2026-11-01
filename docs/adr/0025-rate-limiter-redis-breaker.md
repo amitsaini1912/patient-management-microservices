@@ -23,6 +23,7 @@ bean (same name, same `redis-rate-limiter.*` route args). RedisRateLimiter swall
 (headers are forced on). A skipped check answers the same -1.
 
 ## Consequences
+- **Measured 2026-11-01** (Redis stopped 60 s under k6): checkout p95 1,054 -> 66 ms, gateway stack traces 949 -> 17.
 - During a Redis outage about 5 requests per instance wait for the timeout, then 2 per 10 s (trial calls), instead of
   every request. Not re-measured under k6 yet.
 - While open, limits are not enforced at all (as before, but now for up to 10 s after Redis is back). The per-card

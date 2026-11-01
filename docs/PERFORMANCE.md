@@ -174,6 +174,24 @@ skipped it, and the fallback rules take ~6 ms. p95 and p99 went down.
 
 Engine alone (`assess.js`, 30 s per rate, same laptop, k6 on it too): one worker held 40/s at p99 196 ms and collapsed
 at 60/s (p99 9.1 s, 496 dropped); **4 workers held 80/s at p99 140 ms** and collapsed at 100/s. The engine image now
-starts 4 workers (Prometheus multiprocess mode, one shared SQLite file). **The checkout test above was not re-run**:
-its 30/s ceiling is the one-worker number until it is.
+starts 4 workers (Prometheus multiprocess mode, one shared SQLite file). The checkout step test was re-run the same day (below).
+
+## Update 2026-11-01: checkout step test after the follow-ups (F1-F8)
+
+Same test as above (`PROFILE=step`, 5 -> 40 checkouts/s, 8,324 checkouts, fresh stack, k6 on the same laptop), run by
+you right after `start-stack.sh` - so billing was freshly started (the Day 23 cold-start case, ADR 0026). Results in
+`load-test/results/step-followups*`.
+
+| Run | Risk-checked by the engine | Fallback: breaker open / timeout | checkout p95 | p99 | max | errors |
+|---|---|---|---|---|---|---|
+| Day 22 before | 2,743 (33%) | 5,473 / 108 | 121 ms | 342 ms | 380 ms | 0 |
+| Day 22 after | 5,954 (72%) | 2,327 / 43 | 93 ms | 271 ms | 353 ms | 0 |
+| **2026-11-01** | **8,324 (100%)** | **0 / 0** | **91 ms** | **115 ms** | 1,239 ms | 0 |
+
+- Every payment was risk-checked up to 40/s; risk check 22.8 ms mean as billing saw it (Day 22 after: 26.5 ms).
+  What changed: 4 engine workers (risk ADR 0011) and billing's warm-up before readiness (ADR 0026) - no cold-start
+  timeouts at the start of the run any more.
+- One checkout took 1.24 s (max); not investigated (single outlier, p99 115 ms).
+- The server-side diff (`step-followups-server.txt`) was taken ~28 min after the run: totals are right, its "/s" rates
+  are averaged over the idle time too.
 

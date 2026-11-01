@@ -27,6 +27,8 @@ One rule: **temporary = 503 + Retry-After, and the same Idempotency-Key is safe 
 - Gateway timeouts must stay above billing's slowest legitimate request (risk 0.3 s + vault 2 s + acquirer 5 s).
 
 ## Consequences
+- **Amended 2026-11-01**: "503 in < 5 s" held only with the test config. Live, Hikari's default 30 s connection wait
+  outlasted the gateway's 10 s and one checkout got 504 (CHAOS.md re-run). billing now waits 3000 ms, card-vault 1500 ms.
 - Clients must retry 503 with the same key (and 409 + Retry-After while the key is still in progress), with backoff
   and **jitter**: after an outage, queued retries arrive together (seen: 99 risk timeouts in one second).
 - An acquirer outage longer than the client's patience still leaves authorizations nobody captures (59 in a 60 s

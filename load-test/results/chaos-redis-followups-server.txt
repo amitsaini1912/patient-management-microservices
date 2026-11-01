@@ -1,0 +1,50 @@
+window: 168 s
+
+== server-side time per endpoint (mean over the window; k6 shows the client side + percentiles)
+  gateway     GET   /actuator/prometheus                     status=200 n=     12 (   0.1/s) mean=    3.7 ms
+  gateway     POST  UNKNOWN                                  status=200 n=    752 (   4.5/s) mean=   11.6 ms
+  gateway     POST  UNKNOWN                                  status=201 n=   1502 (   8.9/s) mean=   20.4 ms
+  auth        GET   /actuator/prometheus                     status=200 n=     12 (   0.1/s) mean=    3.0 ms
+  auth        GET   /validate                                status=200 n=   2253 (  13.4/s) mean=    0.4 ms
+  auth        POST  /login                                   status=200 n=      1 (   0.0/s) mean=  213.7 ms
+  billing     GET   /actuator/prometheus                     status=200 n=    108 (   0.6/s) mean=    6.4 ms
+  billing     POST  /payments/{id}/capture                   status=200 n=    751 (   4.5/s) mean=    9.6 ms
+  billing     POST  /webhooks/gateway                        status=200 n=   1502 (   8.9/s) mean=    3.1 ms
+  billing     POST  /payments                                status=201 n=    751 (   4.5/s) mean=   28.7 ms
+  card-vault  GET   /actuator/prometheus                     status=200 n=     12 (   0.1/s) mean=    2.7 ms
+  card-vault  GET   /cards/{token}                           status=200 n=    751 (   4.5/s) mean=    0.4 ms
+  card-vault  POST  /cards/{token}/detokenize                status=200 n=    751 (   4.5/s) mean=    2.4 ms
+  card-vault  POST  /cards                                   status=201 n=    751 (   4.5/s) mean=    2.2 ms
+  simulator   GET   /actuator/prometheus                     status=200 n=     12 (   0.1/s) mean=    3.1 ms
+  simulator   POST  /v1/authorizations                       status=200 n=    751 (   4.5/s) mean=    4.3 ms
+  simulator   POST  /v1/authorizations/{id}/capture          status=200 n=    751 (   4.5/s) mean=    0.3 ms
+  risk-engine /health                                        status=200 n=     16 (   0.1/s) mean=    0.8 ms
+  risk-engine /metrics/prometheus                            status=200 n=     12 (   0.1/s) mean=    4.0 ms
+  risk-engine /v2/assess                                     status=200 n=    442 (   2.6/s) mean=   14.1 ms
+  risk-engine /v2/assess                                     status=503 n=     13 (   0.1/s) mean=    3.8 ms
+
+== DB connection pools (time waiting for a connection = pool too small or connections held too long)
+  billing     pool=HikariPool-1 max=10 acquires=10435 mean wait=0.00 ms timeouts=0
+  card-vault  pool=HikariPool-1 max=10 acquires=2253 mean wait=0.03 ms timeouts=0
+  auth        pool=HikariPool-1 max=10 acquires=2 mean wait=0.14 ms timeouts=0
+
+== risk check as billing saw it (source ENGINE = engine answered, FALLBACK = billing's own rules)
+  application="billing-service",decision="ALLOW",fallback_reason="circuit_open",source="FALLBACK"     303
+  application="billing-service",decision="ALLOW",fallback_reason="http_503",source="FALLBACK"       6
+  application="billing-service",decision="ALLOW",fallback_reason="none",source="ENGINE"          442
+  risk check duration source=ENGINE: n=442 mean=15.3 ms
+  risk check duration source=FALLBACK: n=309 mean=1.2 ms
+  engine risk_unavailable_total{reason="features"}: 13
+
+== payment events counted by billing (after commit)
+  application="billing-service",reason="none",type="payment.authorized"      751
+  application="billing-service",reason="none",type="payment.captured"        751
+  outbox pending now: 0
+
+== CPU used in the window (1.00 = one core busy the whole time)
+  auth         0.02 cores
+  billing      0.06 cores
+  card-vault   0.01 cores
+  gateway      0.02 cores
+  simulator    0.02 cores
+  (Postgres / Kafka / Redis containers: see `docker stats` during the run)

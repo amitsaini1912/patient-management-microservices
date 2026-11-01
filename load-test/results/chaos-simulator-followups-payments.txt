@@ -1,0 +1,7 @@
+   status   | payments | created_over_1_min | resolver_not_received 
+------------+----------+--------------------+-----------------------
+ AUTHORIZED |       59 |                  0 |                     0
+ CAPTURED   |    10280 |                  0 |                     0
+ FAILED     |      124 |                  0 |                   124
+(3 rows)
+

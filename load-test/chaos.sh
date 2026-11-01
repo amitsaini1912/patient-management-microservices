@@ -4,12 +4,13 @@
 # at t=30 s the fault starts, at t=90 s (db: t=60 s) it is healed, then 60 s of recovery are watched.
 # Evidence -> load-test/results/chaos-<scenario>.json (k6), -server.txt (server diff), -timeline.txt (every 5 s).
 #
-#   sh load-test/chaos.sh kafka | risk | db | redis | vault | simulator
+#   sh load-test/chaos.sh kafka | risk | db | redis | vault | simulator     (TAG=<name>: separate result files)
 set -eu
 cd "$(dirname "$0")/.."
 S=${1:?scenario: kafka | risk | db | redis | vault | simulator}
 COMPOSE="docker compose -p pm-loadtest --env-file load-test/.env.loadtest -f docker-compose.yml -f load-test/compose.loadtest.yml"
-OUT=load-test/results/chaos-$S
+# TAG=followups sh load-test/chaos.sh redis -> results/chaos-redis-followups.* (keeps the committed Day 23 files)
+OUT=load-test/results/chaos-$S${TAG:+-$TAG}
 RUN=load-test/run
 FAULT_AT=30; HEAL_AT=90
 pid() { cat "$RUN/$1.pid"; }
@@ -51,6 +52,7 @@ wait $K6 || true    # thresholds crossed = non-zero exit; expected during chaos
 sleep 15            # let the outbox drain / Prometheus scrape once more
 sample "end+15" >> "$OUT-timeline.txt"
 python3 load-test/server_stats.py diff "$RUN/chaos-before.json" > "$OUT-server.txt"
+sh load-test/payment-status.sh > "$OUT-payments.txt" 2>&1 || true   # payments by status right after the run
 # what each checkout ended as, and why clients retried (k6's summary doesn't split counters by tag)
 python3 - "$RUN/chaos-points.csv" > "$OUT-outcomes.txt" <<'PY'
 import csv, sys, collections

@@ -280,7 +280,7 @@ CI runs every service's tests on each push, in parallel, with coverage in the jo
   freeze) looks like any uncaptured authorization and is released only by the expiry job.
 - The risk engine ran **one worker** in the checkout load test: ~30 risk-checked payments/s on this laptop; above that
   billing degrades to its fallback rules (safely, but without the model). It now runs 4 workers (engine alone: 80
-  checks/s at p99 140 ms, its ADR 0011); the checkout test has not been repeated with them.
+  checks/s at p99 140 ms, its ADR 0011); re-run of the checkout test: 100% risk-checked up to 40/s (PERFORMANCE.md).
 - Login: per-IP limit + account lockout (ADR 0027). A lockout can be triggered by someone else (5 wrong passwords),
   and behind NAT / a load balancer the per-IP limit needs `gateway.trusted-proxies` or all clients share one bucket.
 - Payouts are not modelled (the acquirer's receivable never moves to a bank account); FX rates are entered by hand.

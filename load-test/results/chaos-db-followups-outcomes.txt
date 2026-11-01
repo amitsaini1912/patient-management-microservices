@@ -1,0 +1,10 @@
+http     authorize 201                    673
+http     authorize 503                    1
+http     authorize 504                    1
+http     capture 200                      673
+http     login 200                        1
+http     tokenize 201                     674
+outcome  CAPTURED                         673
+outcome  authorize_504                    1
+retry    authorize after 503              1
+retry    create_account after UNAVAILABLE 49

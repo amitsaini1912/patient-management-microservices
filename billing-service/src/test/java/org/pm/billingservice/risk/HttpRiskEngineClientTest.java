@@ -154,7 +154,7 @@ class HttpRiskEngineClientTest {
     @Test
     void enabledWithoutUrlOrKeyFailsAtStartup() {
         RiskProperties noKey = new RiskProperties(true, URI.create("http://localhost:1"), " ", Duration.ofMillis(300),
-                Duration.ofMillis(50), "hospital-main", null, null);
+                Duration.ofMillis(50), "hospital-main", null, null, 16);
         assertThatThrownBy(() -> new HttpRiskEngineClient(noKey, json)).isInstanceOf(IllegalStateException.class);
     }
 
@@ -190,6 +190,6 @@ class HttpRiskEngineClientTest {
     private HttpRiskEngineClient client(URI base) {
         RiskProperties p = RiskAssessorTest.properties(true);
         return new HttpRiskEngineClient(new RiskProperties(true, base, p.apiKey(), p.budget(), p.minAttempt(),
-                p.merchantId(), p.fallback(), p.circuitBreaker()), json);
+                p.merchantId(), p.fallback(), p.circuitBreaker(), p.maxConcurrent()), json);
     }
 }

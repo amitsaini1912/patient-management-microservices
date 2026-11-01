@@ -21,7 +21,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * All requests here come from 127.0.0.1, so this class owns that IP's login bucket (its own Redis container).
  * Real HTTP (bindToServer): the auto-configured WebTestClient talks to a mock server that has no client address.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "spring.data.redis.timeout=2s") // counts tokens: a slow first Redis call must not fail open (see GatewayIntegrationTest)
 @Import(RedisTestcontainer.class)
 class LoginRateLimitTest extends GatewayTestSupport {
 
@@ -31,6 +32,8 @@ class LoginRateLimitTest extends GatewayTestSupport {
     @Test
     void tenLoginAttemptsThenA429WithRetryAfterAndAForgedForwardedForDoesNotHelp() {
         web = WebTestClient.bindToServer().baseUrl("http://localhost:" + port).build();
+        // warm-up on ANOTHER route (a user bucket): connection + Lua script load happen before the counted burst
+        web.get().uri("/api/payments/1").header("Authorization", "Bearer valid-warmup@test.com").exchange();
         for (int i = 0; i < 10; i++) {
             login(null).expectStatus().isUnauthorized();                       // reached auth-service
         }

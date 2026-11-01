@@ -20,15 +20,32 @@ import static org.assertj.core.api.Assertions.assertThat;
  * The built-in limiter's Lua script reads Redis TIME in WHOLE seconds, so tokens come back in steps at each second
  * boundary. A burst that crosses a boundary gets an extra token; tests that count tokens therefore start right
  * after a boundary ({@link #startOfNextSecond()}). Redis runs on this machine's clock, so the boundaries line up.
+ *
+ * Redis timeout 2 s here (the app's is 200 ms) + one warm-up request: CI (2026-11-01, a212b8a) got a 200 where a 429
+ * was due. The first limiter call in a fresh context (connection, Lua script load, coverage agent) can take > 200 ms;
+ * it then fails OPEN without taking a token, so the burst had one token too many - and since ADR 0025 a few slow
+ * first calls can even open the breaker. These tests count tokens; Redis being slow is RedisDownTest's subject.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "GATEWAY_PAYMENTS_RATE_PER_SECOND=1", "GATEWAY_PAYMENTS_BURST=3",
-        "GATEWAY_CARDS_RATE_PER_SECOND=1", "GATEWAY_CARDS_BURST=2"})
+        "GATEWAY_CARDS_RATE_PER_SECOND=1", "GATEWAY_CARDS_BURST=2",
+        "spring.data.redis.timeout=2s"})
 @AutoConfigureWebTestClient
 @Import(RedisTestcontainer.class)
 class GatewayIntegrationTest extends GatewayTestSupport {
 
     @Autowired private WebTestClient web;
+
+    private static volatile boolean warm;
+
+    @org.junit.jupiter.api.BeforeEach
+    void warmUpTheLimiterOnce() {
+        if (!warm) { // a throwaway user: its bucket is never counted
+            web.get().uri("/api/payments/1").header("Authorization", "Bearer valid-" + user()).exchange();
+            warm = true;
+            received.clear(); // runs after GatewayTestSupport.resetStubs: tests must not see the warm-up request
+        }
+    }
 
     // ---- JWT (weakness #7) ----
 

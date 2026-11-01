@@ -96,5 +96,7 @@ Redis down (`CardRateLimiterFailOpenTest`, gateway `RedisDownTest`, Day 12).
 - **Thundering herd after an outage.** When Postgres came back, the clients' queued retries arrived together:
   99 risk-check timeouts in one second, breaker open, fallback for ~30 s. Safe (fallback rules), but retries should
   have jitter (clients) and billing could limit concurrent risk calls.
+  **Fixed 2026-11-01 (ADR 0028):** billing caps concurrent risk calls (16); payments over the cap get the fallback
+  at once, the breaker stays closed. Tested with a load-dependent fake engine; not re-measured live.
 - **k6 `dropped_iterations`** in the database / vault runs: k6 couldn't start new virtual users fast enough while
   many were sleeping in retry waits. A limitation of the client, not of the system.

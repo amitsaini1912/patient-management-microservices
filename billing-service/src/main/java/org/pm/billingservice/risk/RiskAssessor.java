@@ -7,6 +7,7 @@ import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryConfig;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
+import java.util.concurrent.Semaphore;
 import java.util.function.Supplier;
 import org.pm.billingservice.payment.Payment;
 import org.slf4j.Logger;
@@ -24,6 +25,12 @@ import org.springframework.stereotype.Component;
  *
  * The breaker stops us paying the timeout on every payment while the engine is down: when it is open, payments go
  * straight to the fallback, and after `openFor` a few calls test whether the engine is back.
+ *
+ * Concurrency cap (ADR 0028): at most `maxConcurrent` payments use the engine at once. The engine's latency grows with
+ * the work queued at it, so a herd (all the clients' retries arriving the second Postgres came back: 99 risk timeouts
+ * in 1 s on Day 23) made EVERY call miss the budget, opened the breaker, and cost ~30 s of fallback decisions. Now the
+ * payments over the cap are decided by the fallback at once ("busy") - not counted against the engine - and the
+ * calls that do go out stay fast, so the breaker stays closed and the fallback ends with the herd.
  */
 @Component
 @EnableConfigurationProperties(RiskProperties.class)
@@ -37,6 +44,7 @@ public class RiskAssessor {
     private final MeterRegistry meters;
     private final CircuitBreaker breaker;
     private final Retry retry;
+    private final Semaphore inFlight;
 
     public RiskAssessor(RiskProperties properties, ObjectProvider<RiskEngineClient> engine, FallbackRiskRules fallback,
                         MeterRegistry meters) {
@@ -65,6 +73,8 @@ public class RiskAssessor {
             case HALF_OPEN -> 2;
             default -> -1;
         });
+        this.inFlight = new Semaphore(Math.max(1, properties.maxConcurrent()));
+        meters.gauge("billing.risk.in.flight", inFlight, s -> Math.max(1, properties.maxConcurrent()) - s.availablePermits());
         this.breaker.getEventPublisher().onStateTransition(event ->
                 log.warn("risk engine circuit breaker: {}", event.getStateTransition()));
     }
@@ -88,6 +98,17 @@ public class RiskAssessor {
         if (engine == null) {
             return fallback.decide(payment, "disabled");
         }
+        if (!inFlight.tryAcquire()) {
+            return fallback.decide(payment, "busy"); // never waits: the budget is for the engine's answer, not a queue
+        }
+        try {
+            return decideWithEngine(payment, deadlineNanos);
+        } finally {
+            inFlight.release();
+        }
+    }
+
+    private RiskVerdict decideWithEngine(Payment payment, long deadlineNanos) {
         Supplier<RiskVerdict> attempt = () -> {
             Duration left = Duration.ofNanos(deadlineNanos - System.nanoTime());
             if (left.compareTo(properties.minAttempt()) < 0) {

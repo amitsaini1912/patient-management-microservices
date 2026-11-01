@@ -21,7 +21,7 @@ class RiskAssessorTest {
         return new RiskProperties(enabled, URI.create("http://localhost:1"), "billing-test-key-0001",
                 Duration.ofMillis(300), Duration.ofMillis(50), "hospital-main",
                 new RiskProperties.Fallback(50_000_00, 10_000_00),
-                new RiskProperties.CircuitBreaker(20, 10, 50f, Duration.ofSeconds(30)));
+                new RiskProperties.CircuitBreaker(20, 10, 50f, Duration.ofSeconds(30)), 16);
     }
 
     private static final RiskVerdict HOLD = new RiskVerdict(RiskDecision.HOLD, RiskSource.ENGINE, List.of("R01_VELOCITY"),

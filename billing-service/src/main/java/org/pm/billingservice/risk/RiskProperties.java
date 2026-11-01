@@ -12,6 +12,8 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param budget     total time the risk check may take, retry included; the payment then goes on with the fallback
  * @param minAttempt an attempt (first or retry) is only started with at least this much budget left
  * @param merchantId sent as merchant_id: the hospital is the merchant
+ * @param maxConcurrent risk calls one billing instance has in flight at most; a payment that finds them all busy is
+ *                   decided by the fallback at once ("busy") instead of queueing at the engine (ADR 0028)
  */
 @ConfigurationProperties("billing.risk")
 public record RiskProperties(
@@ -22,7 +24,8 @@ public record RiskProperties(
         @DefaultValue("50ms") Duration minAttempt,
         @DefaultValue("hospital-main") String merchantId,
         @DefaultValue Fallback fallback,
-        @DefaultValue CircuitBreaker circuitBreaker) {
+        @DefaultValue CircuitBreaker circuitBreaker,
+        @DefaultValue("16") int maxConcurrent) {
 
     /**
      * Billing's own rules when the engine can't be used: amounts in BOOK currency minor units (INR paise).

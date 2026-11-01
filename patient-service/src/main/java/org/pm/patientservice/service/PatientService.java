@@ -11,7 +11,7 @@ import org.pm.patientservice.dto.PatientResponseDTO;
 import org.pm.patientservice.exception.EmailAlreadyExistsException;
 import org.pm.patientservice.exception.PatientNotFoundException;
 import org.pm.patientservice.grpc.BillingServiceGrpcClient;
-import org.pm.patientservice.kafka.KafkaProducer;
+import org.pm.patientservice.outbox.PatientEventOutbox;
 import org.pm.patientservice.mapper.PatientMapper;
 import org.pm.patientservice.model.Patient;
 import org.pm.patientservice.repository.PatientRepository;
@@ -22,20 +22,24 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class PatientService {
 
     private final PatientRepository patientRepository;
     private final BillingServiceGrpcClient billingServiceGrpcClient;
-    private final KafkaProducer kafkaProducer;
+    private final PatientEventOutbox outbox;
+    private final TransactionTemplate transactions;
 
     public PatientService(PatientRepository patientRepository,
                           BillingServiceGrpcClient billingServiceGrpcClient,
-                          KafkaProducer kafkaProducer) {
+                          PatientEventOutbox outbox,
+                          TransactionTemplate transactions) {
         this.patientRepository = patientRepository;
         this.billingServiceGrpcClient = billingServiceGrpcClient;
-        this.kafkaProducer = kafkaProducer;
+        this.outbox = outbox;
+        this.transactions = transactions;
     }
 
     @Cacheable(value = CacheConfig.PATIENT_LIST_CACHE, key = "'all'")
@@ -64,13 +68,17 @@ public class PatientService {
                             + patientRequestDTO.getEmail());
         }
 
-        Patient newPatient = patientRepository.save(
-                PatientMapper.toModel(patientRequestDTO));
+        // patient + its PATIENT_CREATED event in ONE transaction (ADR 0030): both or neither. OutboxRelay sends the
+        // event to Kafka afterwards - before, a Kafka outage here lost the event for good (weakness #4)
+        Patient newPatient = transactions.execute(tx -> {
+            Patient saved = patientRepository.save(PatientMapper.toModel(patientRequestDTO));
+            outbox.patientCreated(saved);
+            return saved;
+        });
 
+        // outside the transaction: no DB connection held during the network call (circuit breaker + fallback)
         billingServiceGrpcClient.createBillingAccount(newPatient.getId().toString(),
                 newPatient.getName(), newPatient.getEmail());
-
-        kafkaProducer.sendEvent(newPatient);
 
         return PatientMapper.toDTO(newPatient);
     }

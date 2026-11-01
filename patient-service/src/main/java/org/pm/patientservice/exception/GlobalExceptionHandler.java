@@ -4,6 +4,7 @@ import java.util.HashMap;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
@@ -34,7 +35,8 @@ public class GlobalExceptionHandler {
         log.warn("Email address already exist {}", ex.getMessage());
         Map<String, String> errors = new HashMap<>();
         errors.put("message", "Email address already exists");
-        return ResponseEntity.badRequest().body(errors);
+        // 409: the request is valid, it conflicts with an existing patient (was 400 - weakness #6)
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(errors);
     }
 
     @ExceptionHandler(PatientNotFoundException.class)
@@ -44,6 +46,6 @@ public class GlobalExceptionHandler {
 
         Map<String, String> errors = new HashMap<>();
         errors.put("message", "Patient not found");
-        return ResponseEntity.badRequest().body(errors);
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errors); // was 400 (weakness #6)
     }
 }

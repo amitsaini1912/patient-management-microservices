@@ -18,6 +18,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -52,7 +53,7 @@ class PatientControllerTest {
     }
 
     @Test
-    void shouldCreatePatientAndReturnStatus200() throws Exception {
+    void shouldCreatePatientAndReturnStatus201WithLocation() throws Exception {
 
         // Arrange
         PatientResponseDTO saved = new PatientResponseDTO();
@@ -79,12 +80,13 @@ class PatientControllerTest {
         mockMvc.perform(post("/patients")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody))
-                .andExpect(status().isOk())
+                .andExpect(status().isCreated())
+                .andExpect(header().string("Location", "/patients/" + saved.getId()))
                 .andExpect(jsonPath("$.email").value("john@test.com"));
     }
 
     @Test
-    void shouldReturnStatus400WhenEmailAlreadyExists() throws Exception {
+    void shouldReturnStatus409WhenEmailAlreadyExists() throws Exception {
 
         // Arrange
         when(patientService.createPatient(any(PatientRequestDTO.class)))
@@ -104,8 +106,18 @@ class PatientControllerTest {
         mockMvc.perform(post("/patients")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message")
                         .value("Email address already exists"));
+    }
+
+    @Test
+    void unknownPatientIs404NotA400() throws Exception {
+        UUID id = UUID.randomUUID();
+        when(patientService.getPatientById(id)).thenThrow(new org.pm.patientservice.exception.PatientNotFoundException("nope"));
+
+        mockMvc.perform(get("/patients/" + id))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("Patient not found"));
     }
 }

@@ -1,5 +1,6 @@
 package org.pm.patientservice.controller;
 
+import java.net.URI;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.pm.patientservice.dto.PatientRequestDTO;
@@ -54,7 +55,8 @@ public class PatientController {
         PatientResponseDTO patientResponseDTO = patientService.createPatient(
                 patientRequestDTO);
 
-        return ResponseEntity.ok().body(patientResponseDTO);
+        // 201 + where the new patient lives (was 200 - weakness #6)
+        return ResponseEntity.created(URI.create("/patients/" + patientResponseDTO.getId())).body(patientResponseDTO);
     }
 
     @PutMapping("/{id}")

@@ -87,6 +87,15 @@ jobs:
 
 
 
+  # ADR 0035: the .proto files copied between services describe the same wire contract (fails on drift)
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Proto copies match their owners
+        run: python3 scripts/check-proto-copies.py
+
   # ADR 0032: the Prometheus alert rules parse and fire on the failures they are for (promtool unit tests)
   monitoring:
     runs-on: ubuntu-latest

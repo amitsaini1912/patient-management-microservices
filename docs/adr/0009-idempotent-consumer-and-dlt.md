@@ -46,6 +46,10 @@ few times and then only logged, so it's lost too.
 | Retry poison messages too | They never succeed; they just hold up the partition. |
 
 ## Consequences
+- **Amended 2026-11-01 - retention**: `processed_event` rows older than 14 days are deleted hourly in batches of
+  10,000 (`ProcessedEventCleanup`, index V5; `analytics.processed-event.retention`). 14 days > Kafka's 7-day topic
+  retention, so even a full replay of the topic finds every event remembered; a replay of older data (e.g. a
+  topic with longer retention) would apply events twice - raise the retention with the topic's.
 - + Duplicates are harmless (tested: same event twice → counters +1, one `processed_event` row).
 - + A bad message is parked with full context, and the partition keeps flowing (tested for both topics, and by hand
   against the compose stack).

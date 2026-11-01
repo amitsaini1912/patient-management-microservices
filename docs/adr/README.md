@@ -34,3 +34,4 @@ a new ADR supersedes or amends an old one, and the Status column says so (review
 | [0026](0026-billing-warm-up-before-readiness.md) | Warm up the risk client (GET /ready ×10) before billing reports ready; readiness probes; HTTP/1.1 to the engine | Accepted |
 | [0027](0027-login-brute-force-protection.md) | Login brute force: per-IP limit on /auth/login at the gateway, 15-min account lockout (same 401), bcrypt for unknown emails too | Accepted |
 | [0028](0028-risk-call-concurrency-cap.md) | At most 16 risk calls in flight per billing instance; the rest get the fallback at once (thundering herd) | Accepted |
+| [0029](0029-webhook-secret-rotation.md) | Webhook secret rotation: current + previous secret accepted, several v1= signatures, counter per key | Accepted |

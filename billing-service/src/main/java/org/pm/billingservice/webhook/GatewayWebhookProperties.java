@@ -8,8 +8,9 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * billing.webhooks.gateway.*
  *
  * @param secret    shared with the acquirer; from env GATEWAY_WEBHOOK_SECRET, never in code
+ * @param previousSecret the secret before the last rotation, accepted until it is removed (ADR 0029); usually empty
  * @param tolerance how far the signed timestamp may be from our clock (both ways) before we refuse: limits replays
  */
 @ConfigurationProperties("billing.webhooks.gateway")
-public record GatewayWebhookProperties(String secret, @DefaultValue("5m") Duration tolerance) {
+public record GatewayWebhookProperties(String secret, String previousSecret, @DefaultValue("5m") Duration tolerance) {
 }

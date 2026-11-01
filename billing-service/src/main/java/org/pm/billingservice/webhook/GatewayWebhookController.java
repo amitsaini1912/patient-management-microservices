@@ -1,5 +1,6 @@
 package org.pm.billingservice.webhook;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import java.util.Map;
 import org.pm.billingservice.payment.GatewayEventNotReadyException;
 import org.pm.billingservice.payment.GatewayEventOutcome;
@@ -29,16 +30,22 @@ public class GatewayWebhookController {
     private final WebhookSignatureVerifier verifier;
     private final GatewayWebhookService service;
 
-    public GatewayWebhookController(WebhookSignatureVerifier verifier, GatewayWebhookService service) {
+    private final MeterRegistry meters;
+
+    public GatewayWebhookController(WebhookSignatureVerifier verifier, GatewayWebhookService service,
+                                    MeterRegistry meters) {
         this.verifier = verifier;
         this.service = service;
+        this.meters = meters;
     }
 
     /** byte[]: the signature is over the exact bytes received, so we must not let Jackson parse first. */
     @PostMapping("/webhooks/gateway")
     public Map<String, String> receive(@RequestHeader(value = SIGNATURE_HEADER, required = false) String signature,
                                        @RequestBody(required = false) byte[] body) {
-        verifier.verify(signature, body == null ? new byte[0] : body);
+        // ADR 0029: which secret signed it (key="previous" still growing = the rotation isn't finished; key="none" = 401s)
+        WebhookSignatureVerifier.Key key = verifier.verify(signature, body == null ? new byte[0] : body);
+        meters.counter("billing.webhooks.signature", "key", key.name().toLowerCase()).increment();
         GatewayEventOutcome outcome = service.handle(body);
         return Map.of("outcome", outcome.name());
     }
@@ -46,6 +53,7 @@ public class GatewayWebhookController {
     @ExceptionHandler(WebhookSignatureVerifier.InvalidSignatureException.class)
     ProblemDetail invalidSignature(WebhookSignatureVerifier.InvalidSignatureException e) {
         log.warn("rejected webhook: {}", e.getMessage());
+        meters.counter("billing.webhooks.signature", "key", "none").increment();
         // same answer for every reason: don't tell a forger which check failed
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, "invalid webhook signature");
         problem.setTitle("Unauthorized");

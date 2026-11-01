@@ -11,6 +11,7 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.junit.jupiter.api.Test;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -64,6 +65,34 @@ class WebhookSignatureVerifierTest {
         assertInvalid("v1=abc", BODY);
         assertInvalid("t=notanumber,v1=abc", BODY);
         assertInvalid("t=" + NOW.getEpochSecond(), BODY);
+    }
+
+    // ---- ADR 0029: secret rotation ----
+
+    @Test
+    void duringARotationTheCurrentAndThePreviousSecretAreAcceptedAndTold() {
+        WebhookSignatureVerifier rotating = new WebhookSignatureVerifier("whsec_new", SECRET, Duration.ofMinutes(5),
+                Clock.fixed(NOW, ZoneOffset.UTC));
+        long t = NOW.getEpochSecond();
+
+        assertThat(rotating.verify(header("whsec_new", t, BODY), BODY)).isEqualTo(WebhookSignatureVerifier.Key.CURRENT);
+        assertThat(rotating.verify(header(SECRET, t, BODY), BODY)).isEqualTo(WebhookSignatureVerifier.Key.PREVIOUS);
+        // a sender in the middle of its switch signs with both: one valid v1 is enough
+        assertThat(rotating.verify("t=" + t + ",v1=" + hmac("whsec_new", t, BODY) + ",v1=" + hmac(SECRET, t, BODY), BODY))
+                .isEqualTo(WebhookSignatureVerifier.Key.CURRENT);
+        assertThat(rotating.verify("t=" + t + ",v1=" + "00".repeat(32) + ",v1=" + hmac(SECRET, t, BODY), BODY))
+                .isEqualTo(WebhookSignatureVerifier.Key.PREVIOUS);
+        assertThatThrownBy(() -> rotating.verify(header("whsec_older", t, BODY), BODY))
+                .isInstanceOf(WebhookSignatureVerifier.InvalidSignatureException.class);
+    }
+
+    @Test
+    void afterTheRotationTheOldSecretIsRefusedAndAHeaderFullOfGuessesToo() {
+        long t = NOW.getEpochSecond();
+        assertInvalid(header("whsec_old", t, BODY), BODY);         // no previous secret configured
+        String guesses = "t=" + t + ",v1=a,v1=b,v1=c,v1=d,v1=" + hmac(SECRET, t, BODY); // > 4 signatures: refused
+        assertInvalid(guesses, BODY);
+        assertThat(verifier.verify(header(SECRET, t, BODY), BODY)).isEqualTo(WebhookSignatureVerifier.Key.CURRENT);
     }
 
     @Test

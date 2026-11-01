@@ -11,6 +11,6 @@ public class WebhookConfig {
 
     @Bean
     WebhookSignatureVerifier webhookSignatureVerifier(GatewayWebhookProperties properties, Clock clock) {
-        return new WebhookSignatureVerifier(properties.secret(), properties.tolerance(), clock);
+        return new WebhookSignatureVerifier(properties.secret(), properties.previousSecret(), properties.tolerance(), clock);
     }
 }

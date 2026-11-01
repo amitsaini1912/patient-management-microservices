@@ -50,6 +50,7 @@ class GatewayWebhookIntegrationTest {
     @Autowired private FakePaymentProcessor processor;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private ObjectMapper objectMapper;
+    @Autowired private io.micrometer.core.instrument.MeterRegistry meters;
 
     private final HttpClient http = HttpClient.newHttpClient();
     private UUID billingAccountId;
@@ -72,9 +73,11 @@ class GatewayWebhookIntegrationTest {
         Payment payment = authorized();
         String body = webhook("payment.captured", payment, 1_000_00);
 
+        double rejectedBefore = meters.counter("billing.webhooks.signature", "key", "none").count();
         HttpResponse<String> response = post(body, WebhookSignatureVerifierTest.header("wrong-secret", now(), bytes(body)));
 
         assertThat(response.statusCode()).isEqualTo(401);
+        assertThat(meters.counter("billing.webhooks.signature", "key", "none").count()).isEqualTo(rejectedBefore + 1); // ADR 0029
         assertThat(rowsFor(eventId(body))).isZero();
         assertThat(status(payment)).isEqualTo(PaymentStatus.AUTHORIZED);
     }

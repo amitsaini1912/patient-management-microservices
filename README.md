@@ -38,12 +38,17 @@ A patient pays a hospital bill by card. Getting that right is harder than callin
 | No event lost, none duplicated | transactional outbox → Kafka; consumers deduplicate | Kafka down 60 s under load: 936 events held, sent within 5 s of recovery ([CHAOS](docs/CHAOS.md)) |
 | Card numbers stay in one place | card-vault (AES-256-GCM, key versions, HMAC fingerprints); billing sees tokens only | PCI log-masking tests; 0 card numbers in any log (Day 20b) |
 | Fraud checked before the network | risk engine within a 300 ms budget, retry, circuit breaker, safe fallback rules | engine paused under load: 0 errors, breaker opened and closed by itself ([CHAOS](docs/CHAOS.md)) |
-| History can't be rewritten | HMAC hash-chained audit log, appended in the same transaction | `GET /audit/verify`; tampering tests (ADR 0016) |
+| History can't be rewritten | HMAC hash-chained audit log, appended in the same transaction; chain head anchored in Kafka every 5 min | `GET /audit/verify`; tampering tests incl. "delete the newest rows and rewind the head" (ADR 0016, 0033) |
+| Unknown outcomes don't linger | payments whose acquirer answer was lost get a status inquiry, then FAILED or voided | acquirer frozen 60 s under load: 121 → **0** payments left stuck (ADR 0024, [CHAOS](docs/CHAOS.md)) |
+| Logins can't be brute-forced | per-IP limit at the gateway, account lockout, same bcrypt cost for unknown emails | `LoginRateLimitTest`, `LoginLockoutTest` (ADR 0027) |
 | Tells clients the truth when something breaks | 503 + Retry-After for temporary failures, 504 on timeouts; never 500 for an outage | Toxiproxy + live chaos ([CHAOS](docs/CHAOS.md), ADR 0023) |
+| Someone notices | 12 Prometheus alert rules for the failures above (outbox, risk fallback rate, stuck payments, webhooks, lockouts, review queue) | promtool unit tests in CI (ADR 0032) |
 
 Measured on one laptop (Intel i5-13500H), whole path through the gateway ([PERFORMANCE](docs/PERFORMANCE.md)):
-**8,324 checkouts, 0 errors, p95 93 ms**; every payment risk-checked up to **30 checkouts/s** (one risk-engine
-worker), after finding and fixing the bottleneck (15 → 30/s).
+**8,324 checkouts, 0 errors, p95 91 ms / p99 115 ms; every payment risk-checked up to 40 checkouts/s** - after
+finding that overload had silently skipped the fraud check for 66% of payments, fixing the engine's CPU cost and
+running it with 4 workers (33% → 72% → 100% risk-checked). Under chaos: Redis down → p95 1,054 → 66 ms; Postgres
+back after an outage → the risk breaker no longer opens ([CHAOS](docs/CHAOS.md)).
 
 ## Architecture
 

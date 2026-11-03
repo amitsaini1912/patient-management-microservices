@@ -272,8 +272,23 @@ the tests are.
 
 CI runs every service's tests on each push, in parallel, with coverage in the job summary (report only).
 
+## How this project grew
+
+It started as a small patient-management system to learn microservices, and became a payments platform step by step
+(see the commit history):
+
+| When | Stage | What was added |
+|---|---|---|
+| Jun 2026 | **Microservices basics** | patient + billing services, REST, **gRPC** between them, **Kafka** events to analytics, Dockerfiles, API gateway, auth-service with **JWT** |
+| Jul 2026 | **Quality & operations** | JUnit 5 + Mockito unit tests, Testcontainers integration tests, **Redis caching** (`@Cacheable`, cache eviction, TTLs), **Resilience4j circuit breaker** on the gRPC call, Prometheus + Grafana, GitHub Actions CI, Kubernetes (StatefulSet + PVCs) |
+| Jul 2026 | **SQL & performance** | Flyway, JOIN / GROUP BY / window-function / CTE reports, **Hibernate N+1 fixed (6 queries → 1)**, **composite index (~68 ms → ~6 ms on 2M rows)**: [docs/SQL_TUNING.md](docs/SQL_TUNING.md) |
+| Oct 2026 | **Payments core** | exact Money type, double-entry ledger, payment state machine with optimistic locking, refunds, Idempotency-Key, transactional outbox |
+| Oct–Nov 2026 | **Payments depth** | acquirer simulator + webhooks, reconciliation, multi-currency, card vault, ISO 8583 network, rate limiting, audit log, risk engine integration |
+| Nov 2026 | **Proving it** | k6 load test (found the fraud check silently skipped under load), chaos tests with Toxiproxy, observability, 800+ tests |
+
 ## Documents
 
+- [docs/SQL_TUNING.md](docs/SQL_TUNING.md) — N+1 (6 queries → 1) and a composite index on 2M rows, both re-runnable
 - [docs/adr/](docs/adr/) — 35 architecture decisions: what was chosen, the alternatives, and the cost
 - [docs/PERFORMANCE.md](docs/PERFORMANCE.md) — k6 load test, the bottleneck, before/after
 - [docs/CHAOS.md](docs/CHAOS.md) — six failures under load, what happened, what was fixed
